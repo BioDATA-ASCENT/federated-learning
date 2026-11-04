@@ -96,6 +96,132 @@ flwr run apps/mnist_fedavg aws --stream -c 'min-nodes=4 num-server-rounds=20'
 
 **Stop everything:** `tmux kill-session -t fl`. Logs are kept in `~/fl-logs/`.
 
+## The HLCA app (Track A)
+
+[apps/hlca_fedavg](apps/hlca_fedavg) is the real app. It classifies cell types in the
+Human Lung Cell Atlas, one client per lab group, nine classes from `ann_level_2`.
+
+It differs from the MNIST demo in one way that changes the deployment, so read this
+before you run it.
+
+**MNIST slices are interchangeable. HLCA partitions are not.** The MNIST server numbers
+whichever nodes are online and tells each one which slice to cut. An HLCA partition is
+one named institution: `client_4.h5ad` is Seibold and nothing else. So each node
+declares which partition it holds, and the file has to be there before it joins.
+
+### Stage the data (lead, once)
+
+The partitions are cut from the HLCA core on one machine. The nodes never see the core.
+
+```bash
+make data-hlca          # 5.87 GB download, once
+make partitions         # about 1 minute, writes ~/fedbio-data/hlca/
+make initial-model      # about 15 seconds, writes ~/fedbio-data/initial.pt
+```
+
+`make partitions` writes eight files. Give each node only what it needs:
+
+| Node | Send | Size |
+|---|---|---|
+| every node | `genes.txt` | 32 KB |
+| 0 | `client_0.h5ad` Krasnow | 22 MB |
+| 1 | `client_1.h5ad` Meyer, Teichmann | 16 MB |
+| 2 | `client_2.h5ad` Jain Misharin | 8 MB |
+| 3 | `client_3.h5ad` Misharin Budinger | 11 MB |
+| 4 | `client_4.h5ad` Seibold | 15 MB |
+| 5 | `client_5.h5ad` Lafyatis Rojas | 7 MB |
+
+Send one h5ad per node, plus the same `genes.txt` to all of them. Do not send
+`contract.json` or `hvg_genes.json`: they list every institution's cell and donor
+counts. Keep `initial_training.h5ad` and `evaluation.h5ad` on your own machine.
+
+```bash
+scp ~/fedbio-data/hlca/genes.txt ~/fedbio-data/hlca/client_4.h5ad <user>@<laptop>:fedbio-data/hlca/
+```
+
+### Join as an HLCA node (every laptop)
+
+Set up SSH key login as in "Join as a node" above, then:
+
+```bash
+mkdir -p ~/fedbio-data/hlca          # put your client_<k>.h5ad and genes.txt here
+FL_PARTITION=4 bash scripts/join_federation.sh
+```
+
+`FL_PARTITION` is your node's number, 0 to 5, and it must match the file you were
+sent. The script checks that `client_$FL_PARTITION.h5ad` and `genes.txt` are present
+and stops before opening the tunnel if either is missing. Without `FL_PARTITION` the
+script behaves exactly as before and joins for the MNIST demo.
+
+Set `FL_DATA_DIR` if your files are not in `~/fedbio-data/hlca`.
+
+**Two nodes must not claim the same number.** Nothing checks it across nodes, so two
+laptops both set to `FL_PARTITION=2` would train twice on one lab and silently leave
+another out. Agree the numbers before you start.
+
+### Start a run (lead)
+
+```bash
+source .venv/bin/activate
+flwr run apps/hlca_fedavg aws --stream
+```
+
+The run waits for `min-nodes`, which defaults to 6. Check who is connected with
+`flwr supernode list aws`. Anything in `[tool.flwr.app.config]` can be overridden:
+
+```bash
+flwr run apps/hlca_fedavg aws --stream -c 'num-server-rounds=10 min-nodes=4'
+```
+
+Keep `local-epochs` at 1 or 2. Hidden units have no fixed order, so averaging degrades
+as the clients train further apart.
+
+### Warm start
+
+The two largest HLCA datasets belong to no institution in the federation, so a model
+trained on them leaks nothing from a client. `make initial-model` trains it in about
+15 seconds and reaches validation macro F1 0.973 on 48 held-out donors.
+
+Only the server needs the file. It loads the weights and sends them to the nodes as
+round 1's starting point.
+
+```bash
+flwr run apps/hlca_fedavg aws --stream -c 'init-model="~/fedbio-data/initial.pt"'
+```
+
+The committed copy is [models/hlca_initial.pt](models/hlca_initial.pt). To use that
+instead, copy it to the default path, because a repo relative path does not resolve:
+the app runs from `~/.flwr/apps/`, not from the checkout.
+
+```bash
+cp models/hlca_initial.pt ~/fedbio-data/initial.pt
+```
+
+Warm start every arm of a comparison, or none. Local, FedAvg and pooled are comparable
+only when all three start from the same weights.
+
+### Output
+
+Each run writes `~/fedbio-runs/hlca_fedavg/<timestamp>/metrics.jsonl` on the server,
+one JSON line per client reply per round plus the federated line per round, and
+`final_model.pt`.
+
+### HLCA troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `KeyError: 'partition-id'` | The node joined without `FL_PARTITION`. It is required for this app |
+| `No partition at .../client_4.h5ad` | That node's h5ad was never copied over, or `FL_DATA_DIR` is wrong |
+| `No gene list at .../genes.txt` | `genes.txt` was not sent to that node |
+| `gene order differs from the contract at index 0` | That node's partition came from a different `make partitions` run than its `genes.txt`. Re-send both from one run |
+| `labels outside the contract` | The partition was cut with a different label column. Re-cut it |
+| `X is not raw counts` | The partition was normalized before it was sent. Partitions carry raw counts |
+| The run never starts | Fewer nodes connected than `min-nodes` |
+
+The gene order check is the one worth understanding. A reordered gene list has the same
+width, so without that check training and averaging would both run and produce a
+meaningless model.
+
 ## Reference results
 
 These are 10 rounds with 2 nodes (this laptop and the server) and the default config:
