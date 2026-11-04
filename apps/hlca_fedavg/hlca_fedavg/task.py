@@ -39,15 +39,6 @@ LABELS: tuple[str, ...] = (
 )
 
 
-def client_file(partition_id: int) -> str:
-    """The partition file for a Flower partition id.
-
-    Flower numbers partitions from 0. The partition files are numbered from 1,
-    as the institutions are, so partition 0 reads client_1.h5ad.
-    """
-    return f"client_{partition_id + 1}.h5ad"
-
-
 def load_genes(path: str | Path) -> list[str]:
     """The fixed gene list, in the order every client must present."""
     p = Path(os.path.expanduser(str(path)))
@@ -180,10 +171,10 @@ def load_partition(path: Path, cfg: dict) -> tuple[DataLoader, DataLoader, list[
 def load_client(partition_id: int, cfg: dict) -> tuple[DataLoader, DataLoader, list[str]]:
     """Load the partition that belongs to this Flower partition id.
 
-    Reads `<data-dir>/client_<partition_id + 1>.h5ad`.
+    Reads `<data-dir>/client_<partition_id>.h5ad`.
     """
     data_dir = Path(os.path.expanduser(str(cfg["data-dir"])))
-    return load_partition(data_dir / client_file(partition_id), cfg)
+    return load_partition(data_dir / f"client_{partition_id}.h5ad", cfg)
 
 
 def train(model: MLP, loader: DataLoader, epochs: int, lr: float, momentum: float) -> list[float]:
