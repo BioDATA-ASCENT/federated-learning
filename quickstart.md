@@ -37,7 +37,7 @@ To add a package, run `uv add <package>`. Do not run `pip install`. `uv add` upd
 
 ## 2. Data
 
-All raw files go in `data/raw/`. Git ignores this folder. One script downloads everything:
+All raw files go in `data/raw/`. Git ignores this folder. One script downloads the data. It fetches the pancreas file by default. It fetches the HLCA core only with `--hlca`:
 
 ```bash
 make data           # pancreas only, every laptop
