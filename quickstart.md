@@ -41,28 +41,32 @@ All raw files go in `data/raw/`. Git ignores this folder. One script downloads e
 
 ```bash
 make data           # pancreas only, every laptop
-make data-hlca      # pancreas and HLCA core, lead's laptop only, 5.9 GB
+make data-hlca      # pancreas and HLCA core, lead's laptop only, 5.87 GB
 ```
 
-The script (`scripts/download_data.sh`) resumes partial downloads, skips files that exist, and opens each file with anndata to check it. The manual commands follow.
+Run `make env` first. The script (`scripts/download_data.sh`) calls `.venv/bin/python`.
+
+The script resumes partial downloads, skips files that exist, checks the md5 of the pancreas file, and opens each file with anndata. It downloads to `<file>.part` and renames the file, so a failed download never leaves a file that the next run reports as complete. The manual commands follow.
 
 ### Pancreas (required, every laptop)
 
-The scIB human pancreas benchmark. 16,382 cells, 19,093 genes, nine protocols in `obs["tech"]`, cell types in `obs["celltype"]`, raw counts in `layers["counts"]`. One client per `tech` value. This is the smoke test dataset.
+The scIB human pancreas benchmark. 16,382 cells, 19,093 genes, nine protocols in `obs["tech"]`, cell types in `obs["celltype"]`, raw counts in `layers["counts"]`. One client per `tech` value. This is the smoke test dataset. The md5 of the file is `5aa155652b998c90395a0c9bd731b4b3`.
+
+Use the host `ndownloader.figshare.com`. The address `https://figshare.com/ndownloader/files/24539828` answers HTTP 202 with an empty body, and `curl --fail` accepts it. That writes a file of zero bytes.
 
 ```bash
-curl -L -o data/raw/pancreas.h5ad https://figshare.com/ndownloader/files/24539828
+curl -L -o data/raw/pancreas.h5ad https://ndownloader.figshare.com/files/24539828
 ```
 
 ### Human Lung Cell Atlas core (Track A, lead's laptop only)
 
-584,944 cells, 28,024 genes, 14 source datasets in `obs["dataset"]`, labels in `obs["ann_level_3"]`. The h5ad file is 5.9 GB. One person downloads it. `make_partitions.py` then writes one small file per client to `data/`, and those files go to the team.
+584,944 cells, 27,402 genes, 14 source datasets in `obs["dataset"]`, labels in `obs["ann_level_3"]`. The h5ad file is 5.87 GB. One person downloads it. `make_partitions.py` then writes one small file per client to `data/`, and those files go to the team.
 
 ```bash
 curl -L -o data/raw/hlca_core.h5ad https://datasets.cellxgene.cziscience.com/688185ad-11c2-4172-a53a-f4f1f4076860.h5ad
 ```
 
-The URL above came from the CELLxGENE curation API on 2026-11-04 (dataset id `066943a2-fdac-4b29-b348-40cede398e4e`). CELLxGENE can change asset URLs when it reprocesses a dataset. If the download fails, get the current URL:
+The URL above came from the CELLxGENE curation API on 2026-11-03 (dataset id `066943a2-fdac-4b29-b348-40cede398e4e`). CELLxGENE can change asset URLs when it reprocesses a dataset. If the download fails, get the current URL:
 
 ```bash
 curl -s https://api.cellxgene.cziscience.com/curation/v1/collections/6f6d381a-7701-4781-935c-db10d30de293 \

@@ -8,7 +8,7 @@ env:            ## create .venv with uv and install packages
 data:           ## download the pancreas data (every laptop)
 	bash scripts/download_data.sh
 
-data-hlca:      ## download pancreas and HLCA core (lead's laptop, 5.9 GB)
+data-hlca:      ## download pancreas and HLCA core (lead's laptop, 5.87 GB)
 	bash scripts/download_data.sh --hlca
 
 test:           ## full pipeline on the pancreas data (target: under five minutes)
