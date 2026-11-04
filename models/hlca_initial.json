@@ -1,0 +1,38 @@
+{
+ "source_file": "initial_training.h5ad",
+ "gene_list": "genes.txt from scripts/partition_hlca.py (2000 genes, deterministic)",
+ "n_genes": 2000,
+ "hidden_size": 256,
+ "labels": [
+  "Airway epithelium",
+  "Alveolar epithelium",
+  "Blood vessels",
+  "Fibroblast lineage",
+  "Lymphatic EC",
+  "Lymphoid",
+  "Myeloid",
+  "Smooth muscle",
+  "Submucosal Gland"
+ ],
+ "epochs": 10,
+ "lr": 0.05,
+ "momentum": 0.9,
+ "batch_size": 128,
+ "val_fraction": 0.2,
+ "seed": 42,
+ "n_train_cells": 151008,
+ "n_val_cells": 45195,
+ "val_macro_f1": 0.973,
+ "val_f1_per_class": {
+  "Airway epithelium": 0.9953,
+  "Alveolar epithelium": 0.9866,
+  "Blood vessels": 0.9909,
+  "Fibroblast lineage": 0.9709,
+  "Lymphatic EC": 0.9805,
+  "Lymphoid": 0.9937,
+  "Myeloid": 0.9905,
+  "Smooth muscle": 0.9329,
+  "Submucosal Gland": 0.9153
+ },
+ "minutes": 0.2
+}

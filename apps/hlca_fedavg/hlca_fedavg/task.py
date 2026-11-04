@@ -54,6 +54,13 @@ def load_genes(path: str | Path) -> list[str]:
     return genes
 
 
+def gene_list_hash(genes: list[str]) -> str:
+    """A short fingerprint of the gene list and its order, to compare nodes."""
+    import hashlib
+
+    return hashlib.sha1("\n".join(genes).encode()).hexdigest()[:12]
+
+
 class MLP(nn.Module):
     """n_genes -> hidden -> n_classes. Logits out, paired with cross entropy."""
 
