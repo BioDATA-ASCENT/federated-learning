@@ -75,7 +75,7 @@ Track A is the work. The team chose cell type classification on the HLCA, with n
 
 The organizers ask for a full prototype by noon, so a pipeline must run end to end before the day starts. [Progress.md](Progress.md) lists the parts and the condition that closes each one.
 
-The repository holds the environment, the download script, these docs, and two Flower apps. [apps/mnist_fedavg](apps/mnist_fedavg) is the toy FedAvg app that proves the deployment path. [apps/hlca_fedavg](apps/hlca_fedavg) is Track A: it runs five rounds over six clients in simulation, and the partitions it reads are cut by hand, outside the app.
+The repository holds the environment, the download script, these docs, and three Flower apps. [apps/mnist_fedavg](apps/mnist_fedavg) is the toy FedAvg app that proves the deployment path. [apps/hlca_fedavg](apps/hlca_fedavg) is Track A: it runs five rounds over six clients in simulation, and the partitions it reads are cut by hand, outside the app. [apps/hlca_logreg](apps/hlca_logreg) is the Track A logistic regression on the same partitions, which also reports the top genes per cell type.
 
 Framework: Flower, `flwr[simulation]==1.42.0`, Python 3.11 or 3.12, Message API only (`ServerApp`, `ClientApp`, `Grid`, `@app.train()`). Tutorials that use `NumPyClient`, `server_fn`, or `start_simulation` are the old API. Do not follow them.
 

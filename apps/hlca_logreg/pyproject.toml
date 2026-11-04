@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hlca-logreg"
+version = "0.1.0"
+description = "Federated logistic regression for cell type classification on the Human Lung Cell Atlas"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "flwr[simulation]==1.42.0",
+    "scikit-learn",
+    "anndata",
+    "numpy",
+    "pandas",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["hlca_logreg"]
+
+[tool.flwr.app]
+publisher = "biodata-ascent"
+
+[tool.flwr.app.components]
+serverapp = "hlca_logreg.server_app:app"
+clientapp = "hlca_logreg.client_app:app"
+
+# Override at submit time, e.g.
+#   flwr run apps/hlca_logreg --stream -c 'num-server-rounds=10 lr=0.005'
+# baseline.py reads num-server-rounds and local-epochs from here, so the
+# local and pooled arms get the same epoch budget as the federation.
+[tool.flwr.app.config]
+num-server-rounds = 20
+local-epochs = 1
+lr = 0.01
+min-nodes = 6             # one per lab group
+seed = 42
+val-fraction = 0.2        # whole donors held out per client
+# Each node holds its own copy. The app does not run in the repository, so a
+# path relative to the repository does not resolve.
+data-dir = "~/fedbio-data/hlca"      # client_<k>.h5ad, raw counts over the contract genes
+gene-list = "~/fedbio-data/hlca/genes.txt"
+out-dir = "~/fedbio-runs/hlca_logreg"
+
+# The supernode count is set with the federation:
+#   flwr federation simulation-config @none/default --num-supernodes 6

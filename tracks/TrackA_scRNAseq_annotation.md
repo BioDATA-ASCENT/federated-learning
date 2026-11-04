@@ -23,7 +23,7 @@ Choose one question, start with a small pancreas prototype, and expand toward HL
 | Metric | Macro F1 |
 | Stage 3 output | Marker genes per cell type, federated versus per client |
 | Smoke test data | scIB human pancreas, one client per `tech` value |
-| Status | Active. Code in `apps/hlca_fedavg/` |
+| Status | Active. Code in `apps/hlca_fedavg/` (MLP) and `apps/hlca_logreg/` (logistic regression) |
 
 ## Data
 
