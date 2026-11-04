@@ -11,7 +11,7 @@ import torch
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
-from hlca_fedavg.task import build_model, client_file, evaluate, load_client, macro_f1, train
+from hlca_fedavg.task import build_model, evaluate, load_client, macro_f1, train
 
 app = ClientApp()
 
@@ -38,8 +38,7 @@ def train_fn(msg: Message, context: Context) -> Message:
         float(cfg["momentum"]),
     )
     n = len(train_loader.dataset)
-    name = client_file(pid)
-    print(f"[{name}] round {rnd}: {n} cells, loss {losses[-1]:.4f}", flush=True)
+    print(f"[client {pid}] round {rnd}: {n} cells, loss {losses[-1]:.4f}", flush=True)
     metrics = MetricRecord({"num-examples": n, "train_loss": losses[-1], "partition-id": pid})
     content = RecordDict({"arrays": ArrayRecord(model.state_dict()), "metrics": metrics})
     return Message(content=content, reply_to=msg)
@@ -51,7 +50,7 @@ def evaluate_fn(msg: Message, context: Context) -> Message:
     loss, tp, fp, fn = evaluate(model, val_loader, len(labels))
     n = len(val_loader.dataset)
     local = macro_f1(tp, fp, fn)
-    print(f"[{client_file(pid)}] local macro F1 {local:.4f} on {n} cells", flush=True)
+    print(f"[client {pid}] local macro F1 {local:.4f} on {n} cells", flush=True)
     # The counts travel, not the score: the server needs the totals to compute
     # one macro F1. local_macro_f1 rides along for the per-client table only.
     metrics = MetricRecord(

@@ -8,7 +8,7 @@ Run from the project folder with the environment active:
 Output in data/hlca/:
     initial_training.h5ad             the two largest datasets not in INSTITUTIONS
     evaluation.h5ad                   the other two datasets not in INSTITUTIONS
-    client_1.h5ad ... client_6.h5ad   one file per institution, from INSTITUTIONS
+    client_0.h5ad ... client_5.h5ad   one file per institution, from INSTITUTIONS
     contract.json                     shared gene list, label list, and file summaries
     genes.txt                         the feature contract, one gene per line, for every node
     hvg_genes.json                    the saved gene list, reused by later runs
@@ -45,15 +45,15 @@ from scipy import sparse
 
 # ---- Edit these to change the split --------------------------------------------
 INSTITUTIONS = {
-    "client_1": ["Krasnow_2020"],
-    "client_2": ["Meyer_2019", "Teichmann_Meyer_2019"],
-    "client_3": ["Jain_Misharin_2021_10Xv1", "Jain_Misharin_2021_10Xv2"],
-    "client_4": ["Misharin_Budinger_2018"],
-    "client_5": ["Seibold_2020_10Xv2", "Seibold_2020_10Xv3"],
-    "client_6": ["Lafyatis_Rojas_2019_10Xv1", "Lafyatis_Rojas_2019_10Xv2"],
+    "client_0": ["Krasnow_2020"],
+    "client_1": ["Meyer_2019", "Teichmann_Meyer_2019"],
+    "client_2": ["Jain_Misharin_2021_10Xv1", "Jain_Misharin_2021_10Xv2"],
+    "client_3": ["Misharin_Budinger_2018"],
+    "client_4": ["Seibold_2020_10Xv2", "Seibold_2020_10Xv3"],
+    "client_5": ["Lafyatis_Rojas_2019_10Xv1", "Lafyatis_Rojas_2019_10Xv2"],
 }
 # Optional: make an institution smaller by keeping a random set of its cells.
-# Example: MAX_CELLS = {"client_6": 5000}
+# Example: MAX_CELLS = {"client_5": 5000}
 MAX_CELLS: dict[str, int] = {}
 # ---------------------------------------------------------------------------------
 

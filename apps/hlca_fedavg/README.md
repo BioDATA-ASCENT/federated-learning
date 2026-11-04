@@ -18,13 +18,9 @@ Put the partitions and the gene list in `~/fedbio-data/hlca/`:
 
 ```
 ~/fedbio-data/hlca/genes.txt        one gene symbol per line, the feature contract
-~/fedbio-data/hlca/client_1.h5ad    raw counts over those genes, in that order
-~/fedbio-data/hlca/client_2.h5ad    plus obs["ann_level_2"] and obs["donor_id"]
-...                                 up to client_6.h5ad
-
-The files are numbered from 1, as the institutions are. Flower numbers its
-partitions from 0, so partition 0 reads `client_1.h5ad`. The log lines name the
-file, not the partition id.
+~/fedbio-data/hlca/client_0.h5ad    raw counts over those genes, in that order
+~/fedbio-data/hlca/client_1.h5ad    plus obs["ann_level_2"] and obs["donor_id"]
+...
 ```
 
 Each partition carries raw counts. The client normalizes to 1e4 and takes
