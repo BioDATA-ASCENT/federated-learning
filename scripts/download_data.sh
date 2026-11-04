@@ -9,6 +9,13 @@ cd "$(dirname "$0")/.."
 RAW=data/raw
 mkdir -p "$RAW"
 
+WANT_HLCA=no
+case "${1:-}" in
+  "")       WANT_HLCA=no ;;
+  --hlca)   WANT_HLCA=yes ;;
+  *)        echo "unknown argument: $1. Use no argument, or --hlca." >&2; exit 2 ;;
+esac
+
 # Use .venv/bin/python, not `uv run`. `uv run` obeys .python-version and would
 # rebuild a 3.11 environment with the pinned version.
 PYBIN=.venv/bin/python
@@ -79,8 +86,12 @@ fetch "$PANCREAS_URL" "$RAW/pancreas.h5ad"
 check_md5 "$RAW/pancreas.h5ad" "$PANCREAS_MD5"
 check_h5ad "$RAW/pancreas.h5ad"
 
-# 2. HLCA core (optional)
-if [ "${1:-}" = "--hlca" ]; then
+# 2. HLCA core (only with --hlca)
+if [ "$WANT_HLCA" = "no" ]; then
+  echo
+  echo "Skipping the HLCA core. Run 'make data-hlca' for it (5.87 GB)."
+fi
+if [ "$WANT_HLCA" = "yes" ]; then
   echo "Looking up the current HLCA core URL from the CELLxGENE API."
   url=$(curl -s "https://api.cellxgene.cziscience.com/curation/v1/collections/$HLCA_COLLECTION" \
     | "$PYBIN" -c "
@@ -101,4 +112,7 @@ for d in col['datasets']:
 fi
 
 echo
-du -sh "$RAW"/*.h5ad
+du -sh "$RAW/pancreas.h5ad"
+if [ "$WANT_HLCA" = "yes" ]; then
+  du -sh "$RAW/hlca_core.h5ad"
+fi
