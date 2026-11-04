@@ -55,6 +55,10 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,t
 .fedhead .note{color:var(--muted);font-size:12px;flex:1;min-width:200px}
 button{font:inherit;padding:5px 12px;border-radius:6px;border:1px solid var(--line);background:var(--accent);color:#fff;cursor:pointer}
 button:disabled{opacity:.45;cursor:default}
+.trainbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:4px 0 10px;padding-top:10px;border-top:1px solid var(--line)}
+.trainbar input[type=number]{width:64px;font:inherit;padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+.trainbar .note{color:var(--muted);font-size:12px;flex:1;min-width:200px}
+#tr-start{background:#1f9d55}
 .scroll{overflow-x:auto}tr.gone td{color:var(--muted)}td.detail{font-size:12px;word-break:break-word;min-width:220px}
 .heatmap-scroll{overflow-x:auto}.confusion-heatmap{display:grid;width:max-content;gap:3px}
 .umap-square{width:min(100%,640px);aspect-ratio:1/1;margin:0 auto}
@@ -72,11 +76,21 @@ button:disabled{opacity:.45;cursor:default}
 pre{white-space:pre-wrap;font-size:12px;color:var(--muted);margin:0}
 </style></head><body><main>
 <header><h1 id="title">FedAvg &middot; live</h1>
-<div>Run <select id="run"></select> <span id="status" class="done"></span></div></header>
+<div>Run <select id="run"></select> <span id="status" class="done"></span>
+ <button id="v-clear" title="Hide the runs so far; a new run appears here as soon as it starts">Clear view</button></div></header>
 <div class="card" style="margin-bottom:16px"><h2>Federation &middot; nodes and readiness (live)</h2>
  <div class="fedhead"><span><span class="big" id="f-conn">–</span> connected</span><span><span class="big live" id="f-ready">–</span> ready</span>
   <span class="note" id="f-note"></span><button id="f-check">Check now</button></div>
+ <div class="trainbar"><strong>HLCA training</strong>
+  <label>Rounds <input type="number" id="tr-rounds" value="20" min="1" max="200"></label>
+  <label><input type="checkbox" id="tr-warm" checked> warm start (models/hlca_initial.pt)</label>
+  <button id="tr-start">Start training</button><span class="note" id="tr-note"></span></div>
  <div class="scroll"><table id="fed"><thead><tr><th>Connection</th><th>Node ID</th><th>For</th><th>Readiness</th><th>Partition</th><th>Detail</th></tr></thead><tbody></tbody></table></div></div>
+<div class="card" id="emptyview" style="display:none;text-align:center;padding:36px 16px">
+ <div style="font-size:16px;font-weight:600;margin-bottom:6px" id="empty-title">View cleared</div>
+ <div class="done" style="margin-bottom:14px">Press <strong>Start training</strong> above. The new run appears here as soon as it begins.</div>
+ <button id="v-all">Show all runs</button></div>
+<div id="runview">
 <div class="tiles">
  <div class="tile"><div class="k">Round</div><div class="v" id="t-round">–</div></div>
  <div class="tile"><div class="k" id="k-acc">Global test accuracy</div><div class="v" id="t-acc">–</div></div>
@@ -112,6 +126,7 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--muted);margin:0}
 </section>
 <div class="card" style="margin-top:12px"><h2>Clients (latest round)</h2><div class="scroll"><table id="clients"><thead id="clients-head"></thead><tbody></tbody></table></div></div>
 <div class="card" style="margin-top:12px"><h2>Run config</h2><pre id="cfg"></pre></div>
+</div>
 </main><script>
 const PALETTE=["#2f6fde","#e8710a","#1f9d55","#a33ea1","#d64545","#0f9fb5","#8a6d00","#6b6b66","#c2185b"];
 const UMAP_INTERVAL=5;
@@ -306,15 +321,31 @@ function renderHLCA(recs,start,end){currentHLCARecs=recs;view(HLCA_VIEW);
 function setSeries(chart,series){chart.data.datasets=series.map((s,i)=>({label:s.label,data:s.data,borderColor:s.color||PALETTE[i%PALETTE.length],
  backgroundColor:s.color||PALETTE[i%PALETTE.length],borderWidth:2,pointRadius:2,tension:0.15,borderDash:s.dash||[]}));chart.update()}
 const runSel=document.getElementById("run");let current=null;
-async function loadRuns(){const runs=await (await fetch("api/runs")).json();const prev=runSel.value;
+// Clear view: hide every run up to the newest one at the time of the click (run names
+// carry the server's timestamp, so the browser clock does not matter). Kept per browser.
+let clearedAfter=null;try{clearedAfter=localStorage.getItem("fedbio-cleared-after")}catch(e){}
+function setCleared(v){clearedAfter=v;try{v?localStorage.setItem("fedbio-cleared-after",v):localStorage.removeItem("fedbio-cleared-after")}catch(e){}}
+const stampOf=r=>r.split("/").pop();
+document.getElementById("v-clear").onclick=async()=>{const runs=await (await fetch("api/runs")).json();
+ setCleared(runs.length?stampOf(runs[0]):"0");runSel.innerHTML="";current=null;refresh()};
+document.getElementById("v-all").onclick=()=>{setCleared(null);runSel.innerHTML="";current=null;refresh()};
+function showRunView(on){document.getElementById("runview").style.display=on?"":"none";
+ document.getElementById("emptyview").style.display=on?"none":"";
+ document.getElementById("v-clear").style.display=on?"":"none";
+ document.getElementById("empty-title").textContent=clearedAfter?"View cleared":"No runs yet";
+ document.getElementById("v-all").style.display=clearedAfter?"":"none";
+ if(!on){document.getElementById("status").textContent="";document.getElementById("title").innerHTML="FedAvg &middot; live"}}
+async function loadRuns(){let runs=await (await fetch("api/runs")).json();const prev=runSel.value;
+ if(clearedAfter)runs=runs.filter(r=>stampOf(r)>clearedAfter);
  if(runs.join()!==[...runSel.options].map(o=>o.value).join()){runSel.innerHTML=runs.map(r=>`<option>${r}</option>`).join("");
-  if(runs.length&&(!prev||current===null||prev===runs[1]))runSel.value=runs[0];else if(prev)runSel.value=prev;}
+  if(runs.length&&(followNewest||!prev||current===null||prev===runs[1])){runSel.value=runs[0];if(followNewest&&runs[0]!==prev)followNewest=false}
+  else if(prev)runSel.value=prev;}
  current=runSel.value||null}
 runSel.onchange=()=>{current=runSel.value;refresh()};
 function label(r){return r["partition-id"]!==undefined?`client ${r["partition-id"]}`:`node ${String(r.node).slice(-4)}`}
 function byClient(rows,key){const m=new Map();rows.forEach(r=>{const l=label(r);if(!m.has(l))m.set(l,[]);m.get(l).push({x:r.round,y:r[key]})});
  return [...m.entries()].sort().map(([l,d])=>({label:l,data:d}))}
-async function refresh(){await loadRuns();if(!current)return;
+async function refresh(){await loadRuns();showRunView(!!current);if(!current)return;
  const recs=await (await fetch("api/metrics?run="+encodeURIComponent(current))).json();
  const start=recs.find(r=>r.type==="run_start"),end=recs.find(r=>r.type==="run_end");
  if(recs.some(r=>r.type==="labels"||r.type==="federated_eval")||(start&&"gene-list" in start.config))return renderHLCA(recs,start,end);
@@ -344,6 +375,13 @@ refresh();setInterval(refresh,2000);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const ago=s=>s<60?`${Math.max(0,Math.round(s))}s`:s<3600?`${Math.floor(s/60)}m ${Math.round(s%60)}s`:`${Math.floor(s/3600)}h ${Math.floor(s%3600/60)}m`;
 const RCLS={"READY":"live","NOT READY":"err","DUPLICATE":"err","ERROR":"err","NO REPLY":"warn"};
+var followNewest=false;  // set by Start training: switch to the new run as soon as it appears
+const tbtn=document.getElementById("tr-start");
+tbtn.onclick=async()=>{tbtn.disabled=true;
+ const body={rounds:+document.getElementById("tr-rounds").value,warm:document.getElementById("tr-warm").checked};
+ const r=await (await fetch("api/train",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json();
+ const note=document.getElementById("tr-note");note.textContent=r.reason;note.dataset.keep=1;
+ setTimeout(()=>delete note.dataset.keep,5000);if(r.started)followNewest=true;refreshFed()};
 const btn=document.getElementById("f-check");
 btn.onclick=async()=>{btn.disabled=true;const r=await (await fetch("api/check",{method:"POST"})).json();
  if(!r.started)document.getElementById("f-note").textContent=r.reason;refreshFed()};
@@ -359,6 +397,13 @@ async function refreshFed(){let f;
  else if(c.auto)parts.push(`auto-check every ${c.auto}s while a node isn't ready`);
  document.getElementById("f-note").textContent=parts.join(" · ");
  btn.disabled=c.running||!!f.active_run;
+ const nReady=on.filter(n=>rd(n)&&rd(n).status==="READY").length,t=f.train||{};
+ const why=t.running?`training: ${t.rounds} rounds on ${t.nodes} nodes, started ${ago(f.now-t.started_at)} ago (shown below)`
+  :f.active_run?`a run is in progress (${f.active_run})`:c.running?"wait for the readiness check"
+  :!on.length?"no nodes connected":nReady<on.length?`${on.length-nReady} connected node(s) not ready`
+  :`ready: trains on all ${on.length} connected nodes`;
+ tbtn.disabled=!!(t.running||f.active_run||c.running||!on.length||nReady<on.length);
+ if(!document.getElementById("tr-note").dataset.keep)document.getElementById("tr-note").textContent=why;
  document.querySelector("#fed tbody").innerHTML=f.nodes.map(n=>{const r=rd(n);
   const st=n.online?(r?r.status:"not checked"):"–",cls=n.online?(RCLS[st]||"done"):"";
   return `<tr class="${n.online?"":"gone"}"><td><span class="dot" style="background:${n.online?"#1f9d55":"var(--muted)"}"></span>${n.online?"online":"left"}</td>
@@ -382,7 +427,10 @@ class Federation:
 
     def __init__(self, db: Path, readiness: Path, connection: str, auto_every: float, log: Path):
         self.db, self.readiness_path, self.log = db, readiness, log
+        self.connection = connection
         self.cmd = ["flwr", "run", "apps/hlca_fedavg", connection, "--stream", "-c", "check-only=true"]
+        self.train_proc: subprocess.Popen | None = None
+        self.train_info: dict = {}
         self.auto_every = auto_every
         self.proc: subprocess.Popen | None = None
         self.last_end = 0.0
@@ -430,13 +478,47 @@ class Federation:
     def start_check(self) -> tuple[bool, str]:
         if self.running():
             return False, "A check is already running."
-        busy = self.active_run()
+        busy = "training started from the dashboard" if self.training() else self.active_run()
         if busy:
             return False, f"A run is in progress ({busy}). Check again when it finishes."
         with self.lock:
             log = self.log.open("a")
             self.proc = subprocess.Popen(self.cmd, cwd=REPO, stdout=log, stderr=subprocess.STDOUT)
         return True, "Check started."
+
+    def training(self) -> bool:
+        with self.lock:
+            if self.train_proc is not None and self.train_proc.poll() is not None:
+                self.train_proc = None
+            return self.train_proc is not None
+
+    def start_training(self, rounds: int, warm: bool) -> tuple[bool, str]:
+        """Start an HLCA run on every connected node, if all of them passed the latest check."""
+        if not 1 <= rounds <= 200:
+            return False, "Rounds must be between 1 and 200."
+        if self.training() or self.active_run():
+            return False, "A run is already in progress."
+        if self.running():
+            return False, "Wait for the readiness check to finish."
+        online = [n["node"] for n in self.nodes() if n["online"]]
+        checked = {r["node"]: r["status"] for r in self.readiness().get("nodes", [])}
+        not_ready = [n for n in online if checked.get(n) != "READY"]
+        if not online:
+            return False, "No nodes are connected."
+        if not_ready:
+            return False, f"{len(not_ready)} connected node(s) did not pass the latest check. Press Check now."
+        config = f"min-nodes={len(online)} num-server-rounds={rounds}"
+        if warm:
+            config += f' init-model="{REPO / "models" / "hlca_initial.pt"}"'
+        cmd = ["flwr", "run", "apps/hlca_fedavg", self.connection, "--stream", "-c", config]
+        with self.lock:
+            log = (self.log.parent / "dashboard-train.log").open("a")
+            log.write(f"\n=== {datetime.now().isoformat(timespec='seconds')}  {' '.join(cmd)}\n")
+            log.flush()
+            self.train_proc = subprocess.Popen(cmd, cwd=REPO, stdout=log, stderr=subprocess.STDOUT)
+            self.train_info = {"rounds": rounds, "warm": warm, "nodes": len(online), "started_at": time.time()}
+        print(f"training started from the dashboard: {config}", flush=True)
+        return True, f"Started: {rounds} rounds on {len(online)} nodes{' from the warm start' if warm else ''}."
 
     def _auto(self) -> None:
         while True:
@@ -459,6 +541,7 @@ class Federation:
             snap["nodes"], snap["active_run"] = self.nodes(), self.active_run()
         except sqlite3.Error as e:
             snap["error"] = f"cannot read {self.db}: {e}"
+        snap["train"] = {"running": self.training(), **self.train_info}
         r = self.readiness()
         snap["check"]["checked_at"] = r.get("checked_at")
         snap["readiness"] = {row["node"]: row for row in r.get("nodes", [])}
@@ -523,6 +606,14 @@ def make_handler(root: Path, fed: Federation):
         def do_POST(self):
             if urlparse(self.path).path == "/api/check":
                 started, reason = fed.start_check()
+                return self._send(json.dumps({"started": started, "reason": reason}).encode(), "application/json")
+            if urlparse(self.path).path == "/api/train":
+                try:
+                    body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                    rounds, warm = int(body.get("rounds", 20)), bool(body.get("warm", True))
+                except (ValueError, TypeError):
+                    return self._send(json.dumps({"started": False, "reason": "Bad request."}).encode(), "application/json", 400)
+                started, reason = fed.start_training(rounds, warm)
                 return self._send(json.dumps({"started": started, "reason": reason}).encode(), "application/json")
             self._send(b"not found", "text/plain", 404)
 
