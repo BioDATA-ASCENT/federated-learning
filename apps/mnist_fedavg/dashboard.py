@@ -56,6 +56,19 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,t
 button{font:inherit;padding:5px 12px;border-radius:6px;border:1px solid var(--line);background:var(--accent);color:#fff;cursor:pointer}
 button:disabled{opacity:.45;cursor:default}
 .scroll{overflow-x:auto}tr.gone td{color:var(--muted)}td.detail{font-size:12px;word-break:break-word;min-width:220px}
+.heatmap-scroll{overflow-x:auto}.confusion-heatmap{display:grid;width:max-content;gap:3px}
+.umap-square{width:min(100%,640px);aspect-ratio:1/1;margin:0 auto}
+.umap-square canvas{display:block;width:100%;height:100%}
+.umap-legend{display:flex;flex-wrap:wrap;justify-content:center;gap:8px 14px;margin-top:8px}
+.umap-legend-item{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)}
+.umap-swatch{width:10px;height:10px;border-radius:50%}
+.confusion-corner,.confusion-col-label{height:132px}
+.confusion-col-label{display:flex;width:64px;align-items:flex-end;justify-content:center;overflow:hidden;padding:5px}
+.confusion-col-label span{writing-mode:vertical-rl;transform:rotate(180deg);font-size:12px;color:var(--muted);text-align:left}
+.confusion-row-label{display:flex;height:64px;align-items:center;font-size:12px;color:var(--muted);padding:4px 8px;line-height:1.2}
+.confusion-cell{display:flex;width:64px;height:64px;align-items:center;justify-content:center;border-radius:4px;font-size:12px;font-variant-numeric:tabular-nums}
+.heatmap-legend{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;margin:6px 0}
+.heatmap-gradient{width:140px;height:12px;border-radius:3px;background:linear-gradient(90deg,#fff,#dc2626)}
 pre{white-space:pre-wrap;font-size:12px;color:var(--muted);margin:0}
 </style></head><body><main>
 <header><h1 id="title">FedAvg &middot; live</h1>
@@ -79,10 +92,29 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--muted);margin:0}
  <div class="card" id="card-class" style="display:none"><h2>F1 per cell type (federated, from the summed counts)</h2><div class="chart"><canvas id="c-class"></canvas></div></div>
  <div class="card" id="card-classbar" style="display:none"><h2>F1 per cell type, latest round</h2><div class="chart"><canvas id="c-classbar"></canvas></div></div>
 </div>
+<section id="hlca-viz" style="display:none;margin-top:12px">
+ <div class="card">
+  <h2>Testing visualizations</h2>
+  <div class="fedhead">
+   <label>Round <select id="viz-round"></select></label>
+   <label>UMAP color <select id="umap-color"><option value="label">Cell type</option><option value="correct">Correct / incorrect</option></select></label>
+   <label>UMAP source <select id="umap-source"><option value="all">All test sets</option><option value="site">Site-held-out</option><option value="external">External evaluation</option></select></label>
+   <span id="viz-note" class="note"></span>
+  </div>
+  <div class="umap-square"><canvas id="c-umap" aria-label="UMAP scatter plot of test cells"></canvas></div>
+  <div id="umap-legend" class="umap-legend"></div>
+ </div>
+ <div class="card" style="margin-top:12px">
+  <div class="fedhead"><h2 style="margin:0">Test confusion matrix</h2><label>Test set <select id="confusion-scope"></select></label><span id="confusion-note" class="note"></span></div>
+  <div class="heatmap-scroll"><div id="confusion-heatmap" class="confusion-heatmap" role="grid" aria-label="Confusion matrix heatmap. Rows are true cell types and columns are predicted cell types."></div></div>
+  <div class="heatmap-legend"><span>Fewer cells</span><span class="heatmap-gradient"></span><span>More cells</span></div>
+ </div>
+</section>
 <div class="card" style="margin-top:12px"><h2>Clients (latest round)</h2><div class="scroll"><table id="clients"><thead id="clients-head"></thead><tbody></tbody></table></div></div>
 <div class="card" style="margin-top:12px"><h2>Run config</h2><pre id="cfg"></pre></div>
 </main><script>
 const PALETTE=["#2f6fde","#e8710a","#1f9d55","#a33ea1","#d64545","#0f9fb5","#8a6d00","#6b6b66","#c2185b"];
+const UMAP_INTERVAL=5;
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 Chart.defaults.color=css("--muted");Chart.defaults.borderColor=css("--line");Chart.defaults.font.family=getComputedStyle(document.body).fontFamily;
 // Each chart carries its value format in chart.$fmt, so one canvas can show accuracy (MNIST) or F1 (HLCA).
@@ -107,6 +139,7 @@ function view(o){document.getElementById("title").innerHTML=o.title;
  document.getElementById("k-acc").textContent=o.k[0];document.getElementById("k-loss").textContent=o.k[1];
  for(const[k,f,y]of o.fmt){charts[k].$fmt=f;charts[k].options.scales.y.title.text=y}
  for(const id of ["card-class","card-classbar"])document.getElementById(id).style.display=o.classes?"":"none";
+ document.getElementById("hlca-viz").style.display=o.classes?"":"none";
  document.getElementById("clients-head").innerHTML="<tr>"+o.cols.map(c=>`<th>${c}</th>`).join("")+"</tr>"}
 const MNIST_VIEW={title:"FedAvg on MNIST &middot; live",k:["Global test accuracy","Global test loss"],classes:false,
  h:{acc:"Global model accuracy (server test set, 10k images; federated = mean of client val)",loss:"Global model loss",
@@ -119,11 +152,132 @@ const HLCA_VIEW={title:"FedAvg on the Human Lung Cell Atlas &middot; live",k:["F
  fmt:[["acc","f1","macro F1"],["cval","f1","macro F1"]],
  cols:["Client","Node ID","Train cells","Train loss","Val cells","Local macro F1"]};
 const f1=(tp,fp,fn)=>tp.map((t,i)=>{const d=2*t+fp[i]+fn[i];return tp[i]+fn[i]>0&&d>0?2*t/d:null});
+let visualKey=null,visualRound=null,visualPoints={},currentHLCARecs=[];
+const roundSel=document.getElementById("viz-round"),colorSel=document.getElementById("umap-color");
+const sourceSel=document.getElementById("umap-source"),confusionSel=document.getElementById("confusion-scope");
+for(const control of [roundSel,colorSel,sourceSel,confusionSel])control.onchange=()=>{visualRound=roundSel.value;refreshHLCAVisuals(currentHLCARecs)};
+const umapCanvas=document.getElementById("c-umap"),umapContext=umapCanvas.getContext("2d");
+let displayedUmapPoints=[];
+function drawUmap(points,names){
+ displayedUmapPoints=points;
+ const bounds=umapCanvas.getBoundingClientRect();
+ if(!bounds.width||!bounds.height)return;
+ const ratio=window.devicePixelRatio||1;
+ umapCanvas.width=Math.round(bounds.width*ratio);umapCanvas.height=Math.round(bounds.height*ratio);
+ umapContext.setTransform(ratio,0,0,ratio,0,0);
+ umapContext.clearRect(0,0,bounds.width,bounds.height);
+ if(!points.length){document.getElementById("umap-legend").innerHTML="";return;}
+ const xs=points.map(p=>p.x),ys=points.map(p=>p.y);
+ const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+ const pad=14,width=bounds.width-pad*2,height=bounds.height-pad*2;
+ const scale=Math.min(width/(maxX-minX||1),height/(maxY-minY||1));
+ const plotWidth=(maxX-minX)*scale,plotHeight=(maxY-minY)*scale;
+ const offsetX=pad+(width-plotWidth)/2,offsetY=pad+(height-plotHeight)/2;
+ for(const point of points){
+  const color=colorSel.value==="correct"?(point.correct?"#2f6fde":"#d64545"):
+   PALETTE[(point.label|0)%PALETTE.length];
+  umapContext.fillStyle=color;
+  umapContext.beginPath();
+  umapContext.arc(offsetX+(point.x-minX)*scale,offsetY+plotHeight-(point.y-minY)*scale,2.2,0,Math.PI*2);
+  umapContext.fill();
+ }
+ const legend=document.getElementById("umap-legend");
+ const labels=colorSel.value==="correct"
+  ?[{label:"Correct",color:"#2f6fde"},{label:"Incorrect",color:"#d64545"}]
+  :[...new Set(points.map(p=>p.label))].sort((a,b)=>a-b).map(label=>({
+    label:names[label]||`class ${label}`,color:PALETTE[label%PALETTE.length]
+   }));
+ legend.innerHTML=labels.map(item=>`<span class="umap-legend-item"><span class="umap-swatch" style="background:${item.color}"></span>${esc(item.label)}</span>`).join("");
+}
+new ResizeObserver(()=>drawUmap(displayedUmapPoints,(currentHLCARecs.find(r=>r.type==="labels")||{labels:[]}).labels))
+ .observe(document.querySelector(".umap-square"));
+colorSel.addEventListener("change",()=>drawUmap(displayedUmapPoints,(currentHLCARecs.find(r=>r.type==="labels")||{labels:[]}).labels));
+function renderConfusion(matrix,names){
+ const grid=document.getElementById("confusion-heatmap");
+ grid.style.gridTemplateColumns=`180px repeat(${names.length}, 64px)`;
+ const headings=names.map(name=>`<div class="confusion-col-label" role="columnheader" title="${esc(name)}"><span>${esc(name)}</span></div>`).join("");
+ const rows=matrix.map((row,i)=>{
+  const rowTotal=row.reduce((sum,value)=>sum+value,0);
+  return `<div class="confusion-row-label" role="rowheader" title="${esc(names[i])}">${esc(names[i])}</div>${
+  row.map((count,j)=>{
+   const proportion=rowTotal?count/rowTotal:null;
+   const strength=proportion??0;
+   const low=[255,255,255],high=[220,38,38];
+   const color=`rgb(${low.map((value,k)=>Math.round(value+(high[k]-value)*strength)).join(",")})`;
+   const foreground=strength>0.57?"#fff":"#1d1d1b";
+   const value=proportion===null?"—":`${(proportion*100).toFixed(1)}%`;
+   const detail=proportion===null?"no true cells in this class":`${value} (${count} of ${rowTotal} cells)`;
+   return `<div class="confusion-cell" role="gridcell" title="True: ${esc(names[i])} · Predicted: ${esc(names[j])} · ${detail}" aria-label="True ${esc(names[i])}, predicted ${esc(names[j])}: ${detail}" style="background:${color};color:${foreground}">${value}</div>`;
+  }).join("")}`;
+ }).join("");
+ grid.innerHTML=`<div class="confusion-corner"></div>${headings}${rows}`;
+}
+async function refreshHLCAVisuals(recs){
+ const wrapper=document.getElementById("hlca-viz");wrapper.style.display="";
+ const names=(recs.find(r=>r.type==="labels")||{labels:[]}).labels;
+ const rounds=[...new Set(recs.filter(r=>r.type==="federated_eval").map(r=>String(r.round)))].sort((a,b)=>+a-+b);
+ const wanted=visualRound&&rounds.includes(visualRound)?visualRound:rounds[rounds.length-1];
+ if(roundSel.innerHTML!==rounds.map(r=>`<option value="${r}">${r}</option>`).join("")){
+  roundSel.innerHTML=rounds.map(r=>`<option value="${r}">${r}</option>`).join("");
+ }
+ if(wanted){roundSel.value=wanted;visualRound=wanted;}
+ else{
+  drawUmap([],names);
+  document.getElementById("viz-note").textContent="Waiting for the first test round.";
+  document.getElementById("confusion-heatmap").innerHTML="";
+  document.getElementById("confusion-note").textContent="Confusion counts will appear after evaluation.";
+  return;
+ }
+ const round=Number(wanted);
+ const umapRound=Math.floor(round/UMAP_INTERVAL)*UMAP_INTERVAL;
+ if(umapRound===0){
+  drawUmap([],names);
+  document.getElementById("viz-note").textContent=`UMAP snapshots update every ${UMAP_INTERVAL} rounds; the first is round ${UMAP_INTERVAL}.`;
+ }else{
+ const runKey=current+"/"+umapRound;
+ if(visualKey!==runKey){
+  visualKey=runKey;visualPoints={};
+  try{
+   const response=await fetch(`api/umap?run=${encodeURIComponent(current)}&round=${umapRound}`);
+   if(response.ok)visualPoints=await response.json();
+   else{visualKey=null;document.getElementById("viz-note").textContent="UMAP is not available for this round yet."}
+  }catch(e){visualKey=null;document.getElementById("viz-note").textContent="Could not load UMAP data."}
+ }
+ const points=visualPoints.points||[];
+ const selected=points.filter(p=>sourceSel.value==="all"||p.source===sourceSel.value).map(p=>({
+  ...p}));
+ drawUmap(selected,names);
+ document.getElementById("viz-note").textContent=points.length
+  ?`UMAP snapshot from round ${umapRound} · ${selected.length.toLocaleString()} test cells`
+  :"Waiting for test-cell embeddings.";
+ }
+
+ const clientRows=recs.filter(r=>r.type==="client_eval"&&String(r.round)===wanted);
+ const globalRow=recs.find(r=>r.type==="federated_eval"&&String(r.round)===wanted);
+ const externalRows=recs.filter(r=>r.type==="external_confusion"&&String(r.round)===wanted);
+ const scopes=[];
+ if(globalRow)scopes.push({id:"sites-global",label:"All sites (pooled)",matrix:globalRow.confusion});
+ if(externalRows.some(r=>r.scope==="global"))scopes.push({id:"external-global",label:"External evaluation (overall)",matrix:externalRows.find(r=>r.scope==="global").confusion});
+ for(const row of clientRows)scopes.push({id:`client-${row["partition-id"]}`,label:`Client ${row["partition-id"]} (held-out)`,matrix:row.confusion});
+ for(const row of externalRows.filter(r=>r.scope!=="global"))scopes.push({id:`external-${row.scope}`,label:`External: ${row.scope}`,matrix:row.confusion});
+ const old=confusionSel.value;
+ confusionSel.innerHTML=scopes.map(s=>`<option value="${esc(s.id)}">${esc(s.label)}</option>`).join("");
+ if(scopes.some(s=>s.id===old))confusionSel.value=old;
+ const scope=scopes.find(s=>s.id===confusionSel.value);
+ if(scope){
+  const matrix=Array.from({length:names.length},(_,i)=>scope.matrix.slice(i*names.length,(i+1)*names.length));
+  renderConfusion(matrix,names);
+  document.getElementById("confusion-note").textContent=`${matrix.flat().reduce((a,b)=>a+b,0).toLocaleString()} test cells · rows normalized to proportions`;
+ }else{
+  document.getElementById("confusion-heatmap").innerHTML="";
+  document.getElementById("confusion-note").textContent="Confusion counts will appear after evaluation.";
+ }
+}
 function elapsed(recs){const tl=recs.length?recs[recs.length-1].t:0;return tl>=60?`${Math.floor(tl/60)}m ${Math.round(tl%60)}s`:`${tl.toFixed(0)}s`}
 function runStatus(errs,end){const st=document.getElementById("status");
  if(errs.length){st.className="err";st.textContent=`● ${errs.length} client error(s)`}
  else if(end){st.className="done";st.textContent="● finished"}else{st.className="live";st.textContent="● running"}}
-function renderHLCA(recs,start,end){view(HLCA_VIEW);
+function renderHLCA(recs,start,end){currentHLCARecs=recs;view(HLCA_VIEW);
  const fe=recs.filter(r=>r.type==="federated_eval"),ct=recs.filter(r=>r.type==="client_train"),ce=recs.filter(r=>r.type==="client_eval");
  const lr=recs.find(r=>r.type==="labels"),last=fe[fe.length-1],N=start?start.config["num-server-rounds"]:"?";
  const names=lr?lr.labels:(last?last.tp.map((_,i)=>`class ${i}`):[]);
@@ -147,7 +301,8 @@ function renderHLCA(recs,start,end){view(HLCA_VIEW);
   `<tr><td><span class="dot" style="background:${PALETTE[i%PALETTE.length]}"></span>${label(v.t||v.e)}</td><td>${n}</td>
   <td>${v.t?v.t["num-examples"]:"–"}</td><td>${v.t?v.t.train_loss.toFixed(4):"–"}</td><td>${v.e?v.e["num-examples"]:"–"}</td>
   <td class="${v.e&&v.e.local_macro_f1<0.5?"err":""}">${v.e?v.e.local_macro_f1.toFixed(3):"–"}</td></tr>`).join("");
- document.getElementById("cfg").textContent=start?JSON.stringify(start.config,null,1):""}
+ document.getElementById("cfg").textContent=start?JSON.stringify(start.config,null,1):"";
+ refreshHLCAVisuals(recs)}
 function setSeries(chart,series){chart.data.datasets=series.map((s,i)=>({label:s.label,data:s.data,borderColor:s.color||PALETTE[i%PALETTE.length],
  backgroundColor:s.color||PALETTE[i%PALETTE.length],borderWidth:2,pointRadius:2,tension:0.15,borderDash:s.dash||[]}));chart.update()}
 const runSel=document.getElementById("run");let current=null;
@@ -344,6 +499,23 @@ def make_handler(root: Path, fed: Federation):
                     return self._send(b"[]", "application/json", 404)
                 rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
                 return self._send(json.dumps(rows).encode(), "application/json")
+            if url.path == "/api/umap":
+                query = parse_qs(url.query)
+                run = query.get("run", [""])[0]
+                try:
+                    server_round = int(query.get("round", [""])[0])
+                except ValueError:
+                    return self._send(b"invalid round", "text/plain", 400)
+                run_dir = (root / run).resolve()
+                path = (run_dir / "umap" / f"round-{server_round:04d}.json").resolve()
+                if (
+                    not run
+                    or root.resolve() not in run_dir.parents
+                    or root.resolve() not in path.parents
+                    or not path.is_file()
+                ):
+                    return self._send(b"{}", "application/json", 404)
+                return self._send(path.read_bytes(), "application/json")
             if url.path == "/api/federation":
                 return self._send(json.dumps(fed.snapshot()).encode(), "application/json")
             self._send(b"not found", "text/plain", 404)

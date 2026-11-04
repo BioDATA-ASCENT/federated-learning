@@ -11,6 +11,7 @@ feature (gene identity and order), label (one fixed class list), preprocessing
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 import anndata as ad
@@ -37,6 +38,11 @@ LABELS: tuple[str, ...] = (
     "Smooth muscle",
     "Submucosal Gland",
 )
+UMAP_INTERVAL = 5
+
+
+def is_umap_round(server_round: int) -> bool:
+    return server_round > 0 and server_round % UMAP_INTERVAL == 0
 
 
 def load_genes(path: str | Path) -> list[str]:
@@ -68,8 +74,12 @@ class MLP(nn.Module):
         self.fc1 = nn.Linear(n_genes, hidden)
         self.fc2 = nn.Linear(hidden, n_classes)
 
+    def forward_with_embedding(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        embedding = F.relu(self.fc1(x))
+        return self.fc2(embedding), embedding
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.fc2(F.relu(self.fc1(x)))
+        return self.forward_with_embedding(x)[0]
 
 
 def build_model(cfg: dict) -> MLP:
@@ -184,6 +194,39 @@ def load_client(partition_id: int, cfg: dict) -> tuple[DataLoader, DataLoader, l
     return load_partition(data_dir / f"client_{partition_id}.h5ad", cfg)
 
 
+def load_evaluation(
+    path: str | Path, cfg: dict
+) -> tuple[DataLoader, list[str], list[str]]:
+    """Load the separate held-out evaluation file without splitting its cells."""
+    p = Path(os.path.expanduser(str(path)))
+    genes = load_genes(cfg["gene-list"])
+    labels = list(LABELS)
+    if not p.is_file():
+        raise FileNotFoundError(f"No central evaluation partition at {p}.")
+
+    a = ad.read_h5ad(p)
+    _check_contracts(a, genes, labels, p)
+    if "dataset" not in a.obs:
+        raise ValueError(f"{p.name}: the evaluation partition needs an obs['dataset'] column.")
+    sc.pp.normalize_total(a, target_sum=1e4)
+    sc.pp.log1p(a)
+
+    x = a.X
+    x = np.asarray(x.todense() if hasattr(x, "todense") else x, dtype=np.float32)
+    label_codes = {name: i for i, name in enumerate(labels)}
+    y = a.obs["ann_level_2"].astype(str).map(label_codes).to_numpy(dtype=np.int64)
+    dataset_names = sorted(a.obs["dataset"].astype(str).unique())
+    dataset_codes = {name: i for i, name in enumerate(dataset_names)}
+    dataset_ids = a.obs["dataset"].astype(str).map(dataset_codes).to_numpy(dtype=np.int64)
+    dataset = TensorDataset(
+        torch.from_numpy(np.array(x, copy=True)),
+        torch.from_numpy(np.array(y, copy=True)),
+        torch.from_numpy(np.array(dataset_ids, copy=True)),
+    )
+    loader = DataLoader(dataset, batch_size=int(cfg["batch-size"]), shuffle=False)
+    return loader, labels, dataset_names
+
+
 def train(model: MLP, loader: DataLoader, epochs: int, lr: float, momentum: float) -> list[float]:
     """Train in place. Returns the mean loss of each epoch."""
     opt = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)
@@ -202,30 +245,141 @@ def train(model: MLP, loader: DataLoader, epochs: int, lr: float, momentum: floa
     return losses
 
 
-def evaluate(model: MLP, loader: DataLoader, n_classes: int) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
-    """Return the mean loss and the per-class true positive, false positive and
-    false negative counts.
+@dataclass
+class EvaluationDetails:
+    loss: float
+    confusion: np.ndarray
+    tp: np.ndarray
+    fp: np.ndarray
+    fn: np.ndarray
+    embeddings: np.ndarray
+    y_true: np.ndarray
+    y_pred: np.ndarray
+    groups: np.ndarray | None
+    group_confusions: dict[int, np.ndarray]
 
-    Counts, not a score: macro F1 is not linear in the clients, so the server
-    sums these and computes one macro F1 from the totals.
-    """
+
+def evaluate_detailed(
+    model: MLP,
+    loader: DataLoader,
+    n_classes: int,
+    max_embedding_cells: int | None,
+    seed: int,
+) -> EvaluationDetails:
+    """Evaluate every cell; None retains all UMAP embeddings, zero retains none."""
+    if max_embedding_cells is not None and max_embedding_cells < 0:
+        raise ValueError("max_embedding_cells must be non-negative.")
     model.eval()
-    tp = np.zeros(n_classes, dtype=np.int64)
-    fp = np.zeros(n_classes, dtype=np.int64)
-    fn = np.zeros(n_classes, dtype=np.int64)
+    n_cells = len(loader.dataset)
+    data_tensors = getattr(loader.dataset, "tensors", ())
+    all_groups = data_tensors[2].numpy() if len(data_tensors) > 2 else None
+    if all_groups is None:
+        if max_embedding_cells is None:
+            selected = np.arange(n_cells)
+        elif max_embedding_cells:
+            selected = np.random.default_rng(seed).choice(
+                n_cells, min(max_embedding_cells, n_cells), replace=False
+            )
+        else:
+            selected = np.empty(0, dtype=np.int64)
+    else:
+        rng = np.random.default_rng(seed)
+        selected_groups = []
+        if max_embedding_cells is None:
+            selected = np.arange(n_cells)
+        else:
+            selected_groups = [
+                rng.choice(
+                    indices,
+                    min(max_embedding_cells, len(indices)),
+                    replace=False,
+                )
+                for group in np.unique(all_groups)
+                if max_embedding_cells
+                and len(indices := np.flatnonzero(all_groups == group))
+            ]
+            selected = (
+                np.concatenate(selected_groups)
+                if selected_groups
+                else np.empty(0, dtype=np.int64)
+            )
+    selected.sort()
+
+    confusion = np.zeros((n_classes, n_classes), dtype=np.int64)
+    group_confusions: dict[int, np.ndarray] = {}
+    embedding_parts: list[np.ndarray] = []
+    true_parts: list[np.ndarray] = []
+    pred_parts: list[np.ndarray] = []
+    group_parts: list[np.ndarray] = []
     total, seen = 0.0, 0
+    offset = 0
     with torch.no_grad():
-        for xb, yb in loader:
-            logits = model(xb)
+        for batch in loader:
+            xb, yb = batch[:2]
+            batch_groups = batch[2].numpy() if len(batch) > 2 else None
+            logits, embeddings = model.forward_with_embedding(xb)
             total += float(F.cross_entropy(logits, yb)) * len(yb)
             seen += len(yb)
             pred = logits.argmax(1).numpy()
             true = yb.numpy()
-            for c in range(n_classes):
-                tp[c] += int(((pred == c) & (true == c)).sum())
-                fp[c] += int(((pred == c) & (true != c)).sum())
-                fn[c] += int(((pred != c) & (true == c)).sum())
-    return total / max(seen, 1), tp, fp, fn
+            confusion += np.bincount(
+                true * n_classes + pred, minlength=n_classes * n_classes
+            ).reshape(n_classes, n_classes)
+            if batch_groups is not None:
+                for group in np.unique(batch_groups):
+                    mask = batch_groups == group
+                    group_confusions.setdefault(
+                        int(group), np.zeros((n_classes, n_classes), dtype=np.int64)
+                    )
+                    group_confusions[int(group)] += np.bincount(
+                        true[mask] * n_classes + pred[mask],
+                        minlength=n_classes * n_classes,
+                    ).reshape(n_classes, n_classes)
+
+            end = offset + len(yb)
+            sample_start = np.searchsorted(selected, offset)
+            sample_end = np.searchsorted(selected, end)
+            local_indices = selected[sample_start:sample_end] - offset
+            if len(local_indices):
+                embedding_parts.append(
+                    embeddings[local_indices].cpu().numpy().astype(np.float32)
+                )
+                true_parts.append(true[local_indices])
+                pred_parts.append(pred[local_indices])
+                if batch_groups is not None:
+                    group_parts.append(batch_groups[local_indices])
+            offset = end
+
+    diagonal = np.diag(confusion)
+    tp = diagonal.copy()
+    fn = confusion.sum(axis=1) - diagonal
+    fp = confusion.sum(axis=0) - diagonal
+    return EvaluationDetails(
+        loss=total / max(seen, 1),
+        confusion=confusion,
+        tp=tp,
+        fp=fp,
+        fn=fn,
+        embeddings=(
+            np.concatenate(embedding_parts)
+            if embedding_parts
+            else np.empty((0, model.fc1.out_features), dtype=np.float32)
+        ),
+        y_true=np.concatenate(true_parts) if true_parts else np.empty(0, dtype=np.int64),
+        y_pred=np.concatenate(pred_parts) if pred_parts else np.empty(0, dtype=np.int64),
+        groups=np.concatenate(group_parts) if group_parts else None,
+        group_confusions=group_confusions,
+    )
+
+
+def evaluate(
+    model: MLP, loader: DataLoader, n_classes: int
+) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
+    """Return the mean loss and per-class true-positive, false-positive, and false-negative counts."""
+    details = evaluate_detailed(
+        model, loader, n_classes, max_embedding_cells=0, seed=0
+    )
+    return details.loss, details.tp, details.fp, details.fn
 
 
 def macro_f1(tp: np.ndarray, fp: np.ndarray, fn: np.ndarray) -> float:

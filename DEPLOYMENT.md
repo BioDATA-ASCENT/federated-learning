@@ -17,6 +17,12 @@ The server's firewall only allows SSH, so nodes connect through an SSH tunnel. N
 
 The demo app is [apps/mnist_fedavg](apps/mnist_fedavg). It is a toy FedAvg on MNIST: an MLP (784→128→10) trained with SGD and momentum, ported from [naderAsadi/FedAvg](https://github.com/naderAsadi/FedAvg) to the Flower Message API. Each node downloads MNIST itself (63 MB) and trains on its own slice of it.
 
+The HLCA app also sends derived hidden-layer embeddings, true labels, and
+predictions for every held-out test cell to the server every fifth round for its
+shared UMAP dashboard. This full-cell visualization payload can be large.
+Expression matrices and cell IDs are not sent for that visualization. See
+[apps/hlca_fedavg](apps/hlca_fedavg) for the data handling details.
+
 ## Check laptop CPU performance
 
 Before joining, you can run `make hardware-check` after `make env`. It benchmarks the same MLP training loop with synthetic MNIST-shaped data, so it needs no MNIST download, SSH connection, or server. It reports the machine architecture, logical CPU count, PyTorch version, and median examples per second at several CPU thread counts. The default uses three measured runs per thread count after a warm-up.

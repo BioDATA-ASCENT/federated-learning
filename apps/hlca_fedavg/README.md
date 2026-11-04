@@ -20,6 +20,7 @@ Put the partitions and the gene list in `~/fedbio-data/hlca/`:
 ~/fedbio-data/hlca/genes.txt        one gene symbol per line, the feature contract
 ~/fedbio-data/hlca/client_0.h5ad    raw counts over those genes, in that order
 ~/fedbio-data/hlca/client_1.h5ad    plus obs["ann_level_2"] and obs["donor_id"]
+~/fedbio-data/hlca/evaluation.h5ad  separate held-out evaluation data, with obs["dataset"]
 ...
 ```
 
@@ -69,6 +70,23 @@ The clients return per-class true positive, false positive and false negative
 counts, not a score. A weighted mean of per-client macro F1 is not the macro F1
 of the pooled predictions, so the server sums the counts and computes macro F1
 once.
+
+The server evaluates each global model on `evaluation.h5ad` every round, as well
+as collecting predictions over each client's held-out donors. Both sources are
+available in the dashboard's round selector. Confusion matrices are computed
+from every test cell; every fifth round, the shared UMAP includes every held-out
+cell from every client and every cell in the external evaluation data. Clients
+send each cell's 256-dimensional hidden-layer representation, true label and
+prediction to the server on those rounds. The dashboard displays the most
+recent fifth-round UMAP at or before the selected round. These derived,
+cell-level values (not expression profiles or cell IDs) leave each client; the
+complete embedding payloads can be substantially larger than a capped sample.
+The UMAP coordinates are saved under `<run>/umap/`; confusion counts and test
+metrics are in `metrics.jsonl`.
+
+The central evaluation file must be present on the server at the configured
+`evaluation-file` path. Override the default path with Flower's `-c` option
+when submitting the run.
 
 ## Tests
 
