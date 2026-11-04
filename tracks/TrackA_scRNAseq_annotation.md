@@ -41,7 +41,7 @@ The scIB human pancreas benchmark: 16,382 cells, 19,093 genes, nine protocols (c
 
 Somebody cuts the partitions by hand, outside the app. Each node then holds its own copy in `~/fedbio-data/hlca/`. What the app needs:
 
-1. Six client files, each one lab group, named `client_0.h5ad` to `client_5.h5ad`.
+1. Six client files, each one lab group, named `client_1.h5ad` to `client_6.h5ad`.
 2. `genes.txt`, 2000 highly variable genes computed from one partition alone, one symbol per line. No step runs on pooled data.
 3. Every client file subset to those genes, in that order, carrying raw counts.
 4. `obs["ann_level_2"]` for the label and `obs["donor_id"]` for the split.

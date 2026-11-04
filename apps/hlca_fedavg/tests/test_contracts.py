@@ -16,10 +16,10 @@ import anndata as ad
 import numpy as np
 import pytest
 
-from hlca_fedavg.task import LABELS, evaluate, load_client, load_genes, macro_f1
+from hlca_fedavg.task import LABELS, client_file, evaluate, load_client, load_genes, macro_f1
 
 DATA = Path(os.path.expanduser(os.environ.get("FEDBIO_DATA", "~/fedbio-data/hlca")))
-CLIENT = DATA / "client_0.h5ad"
+CLIENT = DATA / client_file(0)
 GENES = DATA / "genes.txt"
 
 pytestmark = pytest.mark.skipif(
@@ -44,7 +44,7 @@ def cfg(**over) -> dict:
 def write_variant(tmp_path: Path, change) -> dict:
     """Copy client 0, apply `change` to it, and point a config at the copy."""
     a = change(ad.read_h5ad(CLIENT))
-    a.write_h5ad(tmp_path / "client_0.h5ad")
+    a.write_h5ad(tmp_path / client_file(0))
     return cfg(**{"data-dir": str(tmp_path)})
 
 
