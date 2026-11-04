@@ -1,6 +1,6 @@
 # Quickstart
 
-Two steps: install the environment and download the data. All data are real and public. Nothing here is synthetic.
+Three steps: install the environment, download the data, and run the app. All data are real and public. Nothing here is synthetic.
 
 ## 1. Environment
 
@@ -60,7 +60,7 @@ curl -L -o data/raw/pancreas.h5ad https://ndownloader.figshare.com/files/2453982
 
 ### Human Lung Cell Atlas core (Track A, lead's laptop only)
 
-584,944 cells, 27,402 genes, 14 source datasets in `obs["dataset"]`, labels in `obs["ann_level_3"]`. The h5ad file is 5.87 GB. One person downloads it. That person then writes one small file per client to `data/` and shares those files with the team.
+584,944 cells, 27,402 genes, 14 source datasets in `obs["dataset"]`, labels in `obs["ann_level_2"]`. The h5ad file is 5.87 GB. One person downloads it, cuts the six client partitions from it, and shares those files with the team.
 
 ```bash
 curl -L -o data/raw/hlca_core.h5ad https://datasets.cellxgene.cziscience.com/688185ad-11c2-4172-a53a-f4f1f4076860.h5ad
@@ -78,6 +78,20 @@ Pick the line with `584944` cells.
 ### cBioPortal (Tracks B and C, no download step)
 
 The cBioPortal web API serves mutation, copy number, and clinical data. No login is needed, so there is no download step. Study IDs are listed in the track files.
+
+## 3. Run the app
+
+The Flower app is in [apps/hlca_fedavg](apps/hlca_fedavg). Its README covers the
+run configuration. In short, put the partitions and the gene list in
+`~/fedbio-data/hlca/`, then:
+
+```bash
+flwr federation simulation-config @none/default --num-supernodes 6
+flwr run apps/hlca_fedavg --stream
+```
+
+The partitions are cut by hand, outside the app. Without them the loader stops
+and names the file it wanted.
 
 ## Rules
 
