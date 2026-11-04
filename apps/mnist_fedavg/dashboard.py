@@ -76,7 +76,8 @@ button:disabled{opacity:.45;cursor:default}
 pre{white-space:pre-wrap;font-size:12px;color:var(--muted);margin:0}
 </style></head><body><main>
 <header><h1 id="title">FedAvg &middot; live</h1>
-<div>Run <select id="run"></select> <span id="status" class="done"></span></div></header>
+<div>Run <select id="run"></select> <span id="status" class="done"></span>
+ <button id="v-clear" title="Hide the runs so far; a new run appears here as soon as it starts">Clear view</button></div></header>
 <div class="card" style="margin-bottom:16px"><h2>Federation &middot; nodes and readiness (live)</h2>
  <div class="fedhead"><span><span class="big" id="f-conn">–</span> connected</span><span><span class="big live" id="f-ready">–</span> ready</span>
   <span class="note" id="f-note"></span><button id="f-check">Check now</button></div>
@@ -85,6 +86,11 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--muted);margin:0}
   <label><input type="checkbox" id="tr-warm" checked> warm start (models/hlca_initial.pt)</label>
   <button id="tr-start">Start training</button><span class="note" id="tr-note"></span></div>
  <div class="scroll"><table id="fed"><thead><tr><th>Connection</th><th>Node ID</th><th>For</th><th>Readiness</th><th>Partition</th><th>Detail</th></tr></thead><tbody></tbody></table></div></div>
+<div class="card" id="emptyview" style="display:none;text-align:center;padding:36px 16px">
+ <div style="font-size:16px;font-weight:600;margin-bottom:6px" id="empty-title">View cleared</div>
+ <div class="done" style="margin-bottom:14px">Press <strong>Start training</strong> above. The new run appears here as soon as it begins.</div>
+ <button id="v-all">Show all runs</button></div>
+<div id="runview">
 <div class="tiles">
  <div class="tile"><div class="k">Round</div><div class="v" id="t-round">–</div></div>
  <div class="tile"><div class="k" id="k-acc">Global test accuracy</div><div class="v" id="t-acc">–</div></div>
@@ -120,6 +126,7 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--muted);margin:0}
 </section>
 <div class="card" style="margin-top:12px"><h2>Clients (latest round)</h2><div class="scroll"><table id="clients"><thead id="clients-head"></thead><tbody></tbody></table></div></div>
 <div class="card" style="margin-top:12px"><h2>Run config</h2><pre id="cfg"></pre></div>
+</div>
 </main><script>
 const PALETTE=["#2f6fde","#e8710a","#1f9d55","#a33ea1","#d64545","#0f9fb5","#8a6d00","#6b6b66","#c2185b"];
 const UMAP_INTERVAL=5;
@@ -314,7 +321,22 @@ function renderHLCA(recs,start,end){currentHLCARecs=recs;view(HLCA_VIEW);
 function setSeries(chart,series){chart.data.datasets=series.map((s,i)=>({label:s.label,data:s.data,borderColor:s.color||PALETTE[i%PALETTE.length],
  backgroundColor:s.color||PALETTE[i%PALETTE.length],borderWidth:2,pointRadius:2,tension:0.15,borderDash:s.dash||[]}));chart.update()}
 const runSel=document.getElementById("run");let current=null;
-async function loadRuns(){const runs=await (await fetch("api/runs")).json();const prev=runSel.value;
+// Clear view: hide every run up to the newest one at the time of the click (run names
+// carry the server's timestamp, so the browser clock does not matter). Kept per browser.
+let clearedAfter=null;try{clearedAfter=localStorage.getItem("fedbio-cleared-after")}catch(e){}
+function setCleared(v){clearedAfter=v;try{v?localStorage.setItem("fedbio-cleared-after",v):localStorage.removeItem("fedbio-cleared-after")}catch(e){}}
+const stampOf=r=>r.split("/").pop();
+document.getElementById("v-clear").onclick=async()=>{const runs=await (await fetch("api/runs")).json();
+ setCleared(runs.length?stampOf(runs[0]):"0");runSel.innerHTML="";current=null;refresh()};
+document.getElementById("v-all").onclick=()=>{setCleared(null);runSel.innerHTML="";current=null;refresh()};
+function showRunView(on){document.getElementById("runview").style.display=on?"":"none";
+ document.getElementById("emptyview").style.display=on?"none":"";
+ document.getElementById("v-clear").style.display=on?"":"none";
+ document.getElementById("empty-title").textContent=clearedAfter?"View cleared":"No runs yet";
+ document.getElementById("v-all").style.display=clearedAfter?"":"none";
+ if(!on){document.getElementById("status").textContent="";document.getElementById("title").innerHTML="FedAvg &middot; live"}}
+async function loadRuns(){let runs=await (await fetch("api/runs")).json();const prev=runSel.value;
+ if(clearedAfter)runs=runs.filter(r=>stampOf(r)>clearedAfter);
  if(runs.join()!==[...runSel.options].map(o=>o.value).join()){runSel.innerHTML=runs.map(r=>`<option>${r}</option>`).join("");
   if(runs.length&&(followNewest||!prev||current===null||prev===runs[1])){runSel.value=runs[0];if(followNewest&&runs[0]!==prev)followNewest=false}
   else if(prev)runSel.value=prev;}
@@ -323,7 +345,7 @@ runSel.onchange=()=>{current=runSel.value;refresh()};
 function label(r){return r["partition-id"]!==undefined?`client ${r["partition-id"]}`:`node ${String(r.node).slice(-4)}`}
 function byClient(rows,key){const m=new Map();rows.forEach(r=>{const l=label(r);if(!m.has(l))m.set(l,[]);m.get(l).push({x:r.round,y:r[key]})});
  return [...m.entries()].sort().map(([l,d])=>({label:l,data:d}))}
-async function refresh(){await loadRuns();if(!current)return;
+async function refresh(){await loadRuns();showRunView(!!current);if(!current)return;
  const recs=await (await fetch("api/metrics?run="+encodeURIComponent(current))).json();
  const start=recs.find(r=>r.type==="run_start"),end=recs.find(r=>r.type==="run_end");
  if(recs.some(r=>r.type==="labels"||r.type==="federated_eval")||(start&&"gene-list" in start.config))return renderHLCA(recs,start,end);
