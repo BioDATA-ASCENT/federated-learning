@@ -43,6 +43,8 @@ data-dir = "~/fedbio-data/hlca"      # client_<k>.h5ad, raw counts over the cont
 gene-list = "~/fedbio-data/hlca/genes.txt"
 init-model = ""           # path to a warm start state_dict, empty for a cold start
 out-dir = "~/fedbio-runs/hlca_fedavg"
+check-only = false        # true: ask every connected node whether it can train, then stop
+check-timeout-seconds = 120
 
 # The supernode count is no longer set here. Flower 1.42 keeps it with the
 # federation:
