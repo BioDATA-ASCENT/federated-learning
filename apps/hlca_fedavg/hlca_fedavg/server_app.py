@@ -237,6 +237,27 @@ def _check_nodes(grid: Grid, cfg: dict) -> None:
               "before a training run.", flush=True)
 
 
+# UMAP switches to pynndescent's approximate neighbor search from 4096 points,
+# and that path fails inside Flower's app environment (a numba TypingError).
+# Below it UMAP uses exact neighbors, which also takes seconds instead of minutes.
+UMAP_MAX_POINTS = 4000
+
+
+def _cap_umap_points(visualizations: list[dict], seed: int) -> list[dict]:
+    """Sample at most UMAP_MAX_POINTS in total, an equal share per site or dataset."""
+    groups = [item for item in visualizations if len(item["embeddings"])]
+    if sum(len(item["embeddings"]) for item in groups) <= UMAP_MAX_POINTS:
+        return groups
+    share = max(1, UMAP_MAX_POINTS // len(groups))
+    rng = np.random.default_rng(seed)
+    capped = []
+    for item in groups:
+        n = len(item["embeddings"])
+        keep = np.sort(rng.choice(n, share, replace=False)) if n > share else np.arange(n)
+        capped.append({**item, **{k: item[k][keep] for k in ("embeddings", "y_true", "y_pred")}})
+    return capped
+
+
 @app.main()
 def main(grid: Grid, context: Context) -> None:
     cfg = dict(context.run_config)
@@ -317,6 +338,7 @@ def main(grid: Grid, context: Context) -> None:
                         "y_pred": details.y_pred[mask],
                     }
                 )
+            visualizations = _cap_umap_points(visualizations, seed=int(cfg["seed"]) + server_round)
 
             embedding_parts = [
                 item["embeddings"]
