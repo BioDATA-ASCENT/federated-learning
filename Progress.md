@@ -5,7 +5,7 @@ One line per item. Check the box when the "done when" condition in the README ho
 ## Before the hackathon
 
 - [ ] 1. Decide a name for the project. The name sets the repository name, the Python package name (now `fedbio`), and the Flower app name (now `fedbio_app`).
-- [ ] 2. Environment: `uv sync` works on a clean laptop. `python -c "import flwr"` prints `1.42.0`. ([quickstart.md](quickstart.md))
+- [x] 2. Environment: `uv sync` works on a clean laptop. `python -c "import flwr"` prints `1.42.0`. ([quickstart.md](quickstart.md)) 2026-11-03 MV
 - [ ] 3. Pancreas data downloaded on every laptop.
 - [ ] 4. HLCA core downloaded on the lead's laptop.
 - [ ] 5. `make_partitions.py` writes one h5ad per `tech` value from the pancreas file.

@@ -17,10 +17,11 @@ Clone the repository and create the environment:
 ```bash
 git clone https://github.com/BioDATA-ASCENT/federated-learning.git
 cd federated-learning
-uv venv --python 3.12
+make env            # runs scripts/setup_env.sh: uv venv --python 3.12, then uv sync
 source .venv/bin/activate
-uv sync
 ```
+
+`make env PY=3.11` selects Python 3.11. The script does the same as these three commands: `uv venv --python 3.12`, `uv sync`, and an import check.
 
 `uv venv --python 3.12` downloads Python 3.12 if your machine does not have it. Use `--python 3.11` if you prefer 3.11. `uv sync` installs the packages listed in `pyproject.toml` into `.venv`.
 
@@ -36,11 +37,14 @@ To add a package, run `uv add <package>`. Do not run `pip install`. `uv add` upd
 
 ## 2. Data
 
-All raw files go in `data/raw/`. Git ignores this folder.
+All raw files go in `data/raw/`. Git ignores this folder. One script downloads everything:
 
 ```bash
-mkdir -p data/raw
+make data           # pancreas only, every laptop
+make data-hlca      # pancreas and HLCA core, lead's laptop only, 5.9 GB
 ```
+
+The script (`scripts/download_data.sh`) resumes partial downloads, skips files that exist, and opens each file with anndata to check it. The manual commands follow.
 
 ### Pancreas (required, every laptop)
 
