@@ -24,6 +24,7 @@ from hlca_fedavg.task import (
     load_client,
     load_genes,
     macro_f1,
+    is_umap_round,
     train,
 )
 
@@ -104,21 +105,19 @@ def query_fn(msg: Message, context: Context) -> Message:
 def evaluate_fn(msg: Message, context: Context) -> Message:
     pid, cfg, model, _, val_loader, labels = _setup(msg, context)
     server_round = int(msg.content["config"]["server-round"])
-    sample_embeddings = server_round % 5 == 0
+    sample_embeddings = is_umap_round(server_round)
     details = evaluate_detailed(
         model,
         val_loader,
         len(labels),
-        max_embedding_cells=(
-            int(cfg["umap-sample-per-site"]) if sample_embeddings else 0
-        ),
+        max_embedding_cells=None if sample_embeddings else 0,
         seed=int(cfg["seed"]) + pid,
     )
     n = len(val_loader.dataset)
     local = macro_f1(details.tp, details.fp, details.fn)
     print(f"[client {pid}] local macro F1 {local:.4f} on {n} cells", flush=True)
-    # Confusion counts cover every held-out cell; sampled hidden embeddings and
-    # predictions support a shared UMAP on the server.
+    # Confusion counts cover every held-out cell; on scheduled rounds, hidden
+    # embeddings and predictions for every cell support the shared UMAP.
     metrics = MetricRecord(
         {
             "num-examples": n,

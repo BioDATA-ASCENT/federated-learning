@@ -114,6 +114,7 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--muted);margin:0}
 <div class="card" style="margin-top:12px"><h2>Run config</h2><pre id="cfg"></pre></div>
 </main><script>
 const PALETTE=["#2f6fde","#e8710a","#1f9d55","#a33ea1","#d64545","#0f9fb5","#8a6d00","#6b6b66","#c2185b"];
+const UMAP_INTERVAL=5;
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 Chart.defaults.color=css("--muted");Chart.defaults.borderColor=css("--line");Chart.defaults.font.family=getComputedStyle(document.body).fontFamily;
 // Each chart carries its value format in chart.$fmt, so one canvas can show accuracy (MNIST) or F1 (HLCA).
@@ -228,10 +229,10 @@ async function refreshHLCAVisuals(recs){
   return;
  }
  const round=Number(wanted);
- const umapRound=Math.floor(round/5)*5;
+ const umapRound=Math.floor(round/UMAP_INTERVAL)*UMAP_INTERVAL;
  if(umapRound===0){
   drawUmap([],names);
-  document.getElementById("viz-note").textContent="UMAP snapshots update every 5 rounds; the first is round 5.";
+  document.getElementById("viz-note").textContent=`UMAP snapshots update every ${UMAP_INTERVAL} rounds; the first is round ${UMAP_INTERVAL}.`;
  }else{
  const runKey=current+"/"+umapRound;
  if(visualKey!==runKey){
@@ -247,8 +248,8 @@ async function refreshHLCAVisuals(recs){
   ...p}));
  drawUmap(selected,names);
  document.getElementById("viz-note").textContent=points.length
-  ?`UMAP snapshot from round ${umapRound} · ${selected.length.toLocaleString()} sampled test cells`
-  :"Waiting for sampled test-cell embeddings.";
+  ?`UMAP snapshot from round ${umapRound} · ${selected.length.toLocaleString()} test cells`
+  :"Waiting for test-cell embeddings.";
  }
 
  const clientRows=recs.filter(r=>r.type==="client_eval"&&String(r.round)===wanted);
