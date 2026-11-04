@@ -75,11 +75,13 @@ The server evaluates each global model on `evaluation.h5ad` every round, as well
 as collecting predictions over each client's held-out donors. Both sources are
 available in the dashboard's round selector. Confusion matrices are computed
 from every test cell; UMAP uses up to 1,500 sampled cells per client and per
-external dataset. Clients send the sampled 256-dimensional hidden-layer
-representations, true labels and predictions to the server so it can fit one
-shared UMAP per round. These derived, cell-level values (not expression
-profiles or cell IDs) leave each client. The UMAP coordinates are saved under
-`<run>/umap/`; confusion counts and test metrics are in `metrics.jsonl`.
+external dataset every fifth round. Clients send the sampled 256-dimensional
+hidden-layer representations, true labels and predictions to the server only
+on those rounds, so it can fit one shared UMAP. The dashboard displays the most
+recent fifth-round UMAP at or before the selected round. These derived,
+cell-level values (not expression profiles or cell IDs) leave each client. The
+UMAP coordinates are saved under `<run>/umap/`; confusion counts and test
+metrics are in `metrics.jsonl`.
 
 The central evaluation file must be present on the server at the configured
 `evaluation-file` path. Override the default path with Flower's `-c` option

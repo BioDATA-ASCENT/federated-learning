@@ -103,11 +103,15 @@ def query_fn(msg: Message, context: Context) -> Message:
 @app.evaluate()
 def evaluate_fn(msg: Message, context: Context) -> Message:
     pid, cfg, model, _, val_loader, labels = _setup(msg, context)
+    server_round = int(msg.content["config"]["server-round"])
+    sample_embeddings = server_round % 5 == 0
     details = evaluate_detailed(
         model,
         val_loader,
         len(labels),
-        max_embedding_cells=int(cfg["umap-sample-per-site"]),
+        max_embedding_cells=(
+            int(cfg["umap-sample-per-site"]) if sample_embeddings else 0
+        ),
         seed=int(cfg["seed"]) + pid,
     )
     n = len(val_loader.dataset)
@@ -127,10 +131,9 @@ def evaluate_fn(msg: Message, context: Context) -> Message:
             "confusion": details.confusion.ravel().tolist(),
         }
     )
-    visualization = ArrayRecord.from_numpy_ndarrays(
-        [details.embeddings, details.y_true, details.y_pred]
-    )
-    return Message(
-        content=RecordDict({"metrics": metrics, "visualization": visualization}),
-        reply_to=msg,
-    )
+    content = RecordDict({"metrics": metrics})
+    if sample_embeddings:
+        content["visualization"] = ArrayRecord.from_numpy_ndarrays(
+            [details.embeddings, details.y_true, details.y_pred]
+        )
+    return Message(content=content, reply_to=msg)

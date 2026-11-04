@@ -56,6 +56,19 @@ table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th,t
 button{font:inherit;padding:5px 12px;border-radius:6px;border:1px solid var(--line);background:var(--accent);color:#fff;cursor:pointer}
 button:disabled{opacity:.45;cursor:default}
 .scroll{overflow-x:auto}tr.gone td{color:var(--muted)}td.detail{font-size:12px;word-break:break-word;min-width:220px}
+.heatmap-scroll{overflow-x:auto}.confusion-heatmap{display:grid;width:max-content;gap:3px}
+.umap-square{width:min(100%,640px);aspect-ratio:1/1;margin:0 auto}
+.umap-square canvas{display:block;width:100%;height:100%}
+.umap-legend{display:flex;flex-wrap:wrap;justify-content:center;gap:8px 14px;margin-top:8px}
+.umap-legend-item{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)}
+.umap-swatch{width:10px;height:10px;border-radius:50%}
+.confusion-corner,.confusion-col-label{height:132px}
+.confusion-col-label{display:flex;width:64px;align-items:flex-end;justify-content:center;overflow:hidden;padding:5px}
+.confusion-col-label span{writing-mode:vertical-rl;transform:rotate(180deg);font-size:12px;color:var(--muted);text-align:left}
+.confusion-row-label{display:flex;height:64px;align-items:center;font-size:12px;color:var(--muted);padding:4px 8px;line-height:1.2}
+.confusion-cell{display:flex;width:64px;height:64px;align-items:center;justify-content:center;border-radius:4px;font-size:12px;font-variant-numeric:tabular-nums}
+.heatmap-legend{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;margin:6px 0}
+.heatmap-gradient{width:140px;height:12px;border-radius:3px;background:linear-gradient(90deg,#fff,#dc2626)}
 pre{white-space:pre-wrap;font-size:12px;color:var(--muted);margin:0}
 </style></head><body><main>
 <header><h1 id="title">FedAvg &middot; live</h1>
@@ -88,11 +101,13 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--muted);margin:0}
    <label>UMAP source <select id="umap-source"><option value="all">All test sets</option><option value="site">Site-held-out</option><option value="external">External evaluation</option></select></label>
    <span id="viz-note" class="note"></span>
   </div>
-  <div class="chart" style="height:380px"><canvas id="c-umap"></canvas></div>
+  <div class="umap-square"><canvas id="c-umap" aria-label="UMAP scatter plot of test cells"></canvas></div>
+  <div id="umap-legend" class="umap-legend"></div>
  </div>
  <div class="card" style="margin-top:12px">
   <div class="fedhead"><h2 style="margin:0">Test confusion matrix</h2><label>Test set <select id="confusion-scope"></select></label><span id="confusion-note" class="note"></span></div>
-  <div class="scroll"><table id="confusion-table"></table></div>
+  <div class="heatmap-scroll"><div id="confusion-heatmap" class="confusion-heatmap" role="grid" aria-label="Confusion matrix heatmap. Rows are true cell types and columns are predicted cell types."></div></div>
+  <div class="heatmap-legend"><span>Fewer cells</span><span class="heatmap-gradient"></span><span>More cells</span></div>
  </div>
 </section>
 <div class="card" style="margin-top:12px"><h2>Clients (latest round)</h2><div class="scroll"><table id="clients"><thead id="clients-head"></thead><tbody></tbody></table></div></div>
@@ -118,9 +133,6 @@ charts.ctrain.options.scales.y.ticks.callback=v=>{const e=Math.log10(v);return M
 const barChart=new Chart(document.getElementById("c-classbar"),{type:"bar",data:{labels:[],datasets:[]},
  options:{indexAxis:"y",animation:false,maintainAspectRatio:false,scales:{x:{min:0,max:1,title:{display:true,text:"F1"}}},
  plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`F1 ${c.parsed.x.toFixed(3)}`}}}}});
-const umapChart=new Chart(document.getElementById("c-umap"),{type:"scatter",data:{datasets:[]},
- options:{animation:false,maintainAspectRatio:false,parsing:false,scales:{x:{title:{display:true,text:"UMAP 1"}},y:{title:{display:true,text:"UMAP 2"}}},
- plugins:{legend:{position:"bottom"},tooltip:{callbacks:{label:c=>{const p=c.raw;return `${p.site} · ${p.name} · predicted ${p.predictedName} · ${p.correct?"correct":"incorrect"}`}}}}}});
 function view(o){document.getElementById("title").innerHTML=o.title;
  for(const k of ["acc","loss","ctrain","cval"])document.getElementById("h-"+k).textContent=o.h[k];
  document.getElementById("k-acc").textContent=o.k[0];document.getElementById("k-loss").textContent=o.k[1];
@@ -143,10 +155,61 @@ let visualKey=null,visualRound=null,visualPoints={},currentHLCARecs=[];
 const roundSel=document.getElementById("viz-round"),colorSel=document.getElementById("umap-color");
 const sourceSel=document.getElementById("umap-source"),confusionSel=document.getElementById("confusion-scope");
 for(const control of [roundSel,colorSel,sourceSel,confusionSel])control.onchange=()=>{visualRound=roundSel.value;refreshHLCAVisuals(currentHLCARecs)};
-function confusionTable(matrix,names){
- const rows=matrix.map((row,i)=>`<tr><th title="${names[i]}">${names[i]}</th>${row.map((n,j)=>
-  `<td title="true ${names[i]}, predicted ${names[j]}">${n}</td>`).join("")}</tr>`).join("");
- return `<thead><tr><th>True \\ Pred.</th>${names.map(n=>`<th title="${n}">${n}</th>`).join("")}</tr></thead><tbody>${rows}</tbody>`;
+const umapCanvas=document.getElementById("c-umap"),umapContext=umapCanvas.getContext("2d");
+let displayedUmapPoints=[];
+function drawUmap(points,names){
+ displayedUmapPoints=points;
+ const bounds=umapCanvas.getBoundingClientRect();
+ if(!bounds.width||!bounds.height)return;
+ const ratio=window.devicePixelRatio||1;
+ umapCanvas.width=Math.round(bounds.width*ratio);umapCanvas.height=Math.round(bounds.height*ratio);
+ umapContext.setTransform(ratio,0,0,ratio,0,0);
+ umapContext.clearRect(0,0,bounds.width,bounds.height);
+ if(!points.length){document.getElementById("umap-legend").innerHTML="";return;}
+ const xs=points.map(p=>p.x),ys=points.map(p=>p.y);
+ const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+ const pad=14,width=bounds.width-pad*2,height=bounds.height-pad*2;
+ const scale=Math.min(width/(maxX-minX||1),height/(maxY-minY||1));
+ const plotWidth=(maxX-minX)*scale,plotHeight=(maxY-minY)*scale;
+ const offsetX=pad+(width-plotWidth)/2,offsetY=pad+(height-plotHeight)/2;
+ for(const point of points){
+  const color=colorSel.value==="correct"?(point.correct?"#2f6fde":"#d64545"):
+   PALETTE[(point.label|0)%PALETTE.length];
+  umapContext.fillStyle=color;
+  umapContext.beginPath();
+  umapContext.arc(offsetX+(point.x-minX)*scale,offsetY+plotHeight-(point.y-minY)*scale,2.2,0,Math.PI*2);
+  umapContext.fill();
+ }
+ const legend=document.getElementById("umap-legend");
+ const labels=colorSel.value==="correct"
+  ?[{label:"Correct",color:"#2f6fde"},{label:"Incorrect",color:"#d64545"}]
+  :[...new Set(points.map(p=>p.label))].sort((a,b)=>a-b).map(label=>({
+    label:names[label]||`class ${label}`,color:PALETTE[label%PALETTE.length]
+   }));
+ legend.innerHTML=labels.map(item=>`<span class="umap-legend-item"><span class="umap-swatch" style="background:${item.color}"></span>${esc(item.label)}</span>`).join("");
+}
+new ResizeObserver(()=>drawUmap(displayedUmapPoints,(currentHLCARecs.find(r=>r.type==="labels")||{labels:[]}).labels))
+ .observe(document.querySelector(".umap-square"));
+colorSel.addEventListener("change",()=>drawUmap(displayedUmapPoints,(currentHLCARecs.find(r=>r.type==="labels")||{labels:[]}).labels));
+function renderConfusion(matrix,names){
+ const grid=document.getElementById("confusion-heatmap");
+ grid.style.gridTemplateColumns=`180px repeat(${names.length}, 64px)`;
+ const headings=names.map(name=>`<div class="confusion-col-label" role="columnheader" title="${esc(name)}"><span>${esc(name)}</span></div>`).join("");
+ const rows=matrix.map((row,i)=>{
+  const rowTotal=row.reduce((sum,value)=>sum+value,0);
+  return `<div class="confusion-row-label" role="rowheader" title="${esc(names[i])}">${esc(names[i])}</div>${
+  row.map((count,j)=>{
+   const proportion=rowTotal?count/rowTotal:null;
+   const strength=proportion??0;
+   const low=[255,255,255],high=[220,38,38];
+   const color=`rgb(${low.map((value,k)=>Math.round(value+(high[k]-value)*strength)).join(",")})`;
+   const foreground=strength>0.57?"#fff":"#1d1d1b";
+   const value=proportion===null?"—":`${(proportion*100).toFixed(1)}%`;
+   const detail=proportion===null?"no true cells in this class":`${value} (${count} of ${rowTotal} cells)`;
+   return `<div class="confusion-cell" role="gridcell" title="True: ${esc(names[i])} · Predicted: ${esc(names[j])} · ${detail}" aria-label="True ${esc(names[i])}, predicted ${esc(names[j])}: ${detail}" style="background:${color};color:${foreground}">${value}</div>`;
+  }).join("")}`;
+ }).join("");
+ grid.innerHTML=`<div class="confusion-corner"></div>${headings}${rows}`;
 }
 async function refreshHLCAVisuals(recs){
  const wrapper=document.getElementById("hlca-viz");wrapper.style.display="";
@@ -158,34 +221,35 @@ async function refreshHLCAVisuals(recs){
  }
  if(wanted){roundSel.value=wanted;visualRound=wanted;}
  else{
-  umapChart.data.datasets=[];umapChart.update();
+  drawUmap([],names);
   document.getElementById("viz-note").textContent="Waiting for the first test round.";
-  document.getElementById("confusion-table").innerHTML="";
+  document.getElementById("confusion-heatmap").innerHTML="";
   document.getElementById("confusion-note").textContent="Confusion counts will appear after evaluation.";
   return;
  }
  const round=Number(wanted);
- const runKey=current+"/"+round;
+ const umapRound=Math.floor(round/5)*5;
+ if(umapRound===0){
+  drawUmap([],names);
+  document.getElementById("viz-note").textContent="UMAP snapshots update every 5 rounds; the first is round 5.";
+ }else{
+ const runKey=current+"/"+umapRound;
  if(visualKey!==runKey){
   visualKey=runKey;visualPoints={};
   try{
-   const response=await fetch(`api/umap?run=${encodeURIComponent(current)}&round=${round}`);
+   const response=await fetch(`api/umap?run=${encodeURIComponent(current)}&round=${umapRound}`);
    if(response.ok)visualPoints=await response.json();
    else{visualKey=null;document.getElementById("viz-note").textContent="UMAP is not available for this round yet."}
   }catch(e){visualKey=null;document.getElementById("viz-note").textContent="Could not load UMAP data."}
  }
  const points=visualPoints.points||[];
  const selected=points.filter(p=>sourceSel.value==="all"||p.source===sourceSel.value).map(p=>({
-  ...p,name:names[p.label]||`class ${p.label}`,predictedName:names[p.predicted]||`class ${p.predicted}`}));
- const byLabel=new Map();
- selected.forEach(p=>{if(!byLabel.has(p.name))byLabel.set(p.name,[]);byLabel.get(p.name).push(p)});
- const colorMode=colorSel.value;
- umapChart.data.datasets=colorMode==="correct"?[
-  {label:"Correct",data:selected.filter(p=>p.correct),backgroundColor:"#2f6fde",pointRadius:3},
-  {label:"Incorrect",data:selected.filter(p=>!p.correct),backgroundColor:"#d64545",pointRadius:3}
- ]:[...byLabel.entries()].map(([name,data],i)=>({label:name,data,backgroundColor:PALETTE[i%PALETTE.length],pointRadius:3}));
- umapChart.update();
- document.getElementById("viz-note").textContent=points.length?`${selected.length.toLocaleString()} sampled test cells · shared embedding`: "Waiting for sampled test-cell embeddings.";
+  ...p}));
+ drawUmap(selected,names);
+ document.getElementById("viz-note").textContent=points.length
+  ?`UMAP snapshot from round ${umapRound} · ${selected.length.toLocaleString()} sampled test cells`
+  :"Waiting for sampled test-cell embeddings.";
+ }
 
  const clientRows=recs.filter(r=>r.type==="client_eval"&&String(r.round)===wanted);
  const globalRow=recs.find(r=>r.type==="federated_eval"&&String(r.round)===wanted);
@@ -201,10 +265,10 @@ async function refreshHLCAVisuals(recs){
  const scope=scopes.find(s=>s.id===confusionSel.value);
  if(scope){
   const matrix=Array.from({length:names.length},(_,i)=>scope.matrix.slice(i*names.length,(i+1)*names.length));
-  document.getElementById("confusion-table").innerHTML=confusionTable(matrix,names);
-  document.getElementById("confusion-note").textContent=`${matrix.flat().reduce((a,b)=>a+b,0).toLocaleString()} test cells · rows are true labels`;
+  renderConfusion(matrix,names);
+  document.getElementById("confusion-note").textContent=`${matrix.flat().reduce((a,b)=>a+b,0).toLocaleString()} test cells · rows normalized to proportions`;
  }else{
-  document.getElementById("confusion-table").innerHTML="";
+  document.getElementById("confusion-heatmap").innerHTML="";
   document.getElementById("confusion-note").textContent="Confusion counts will appear after evaluation.";
  }
 }
