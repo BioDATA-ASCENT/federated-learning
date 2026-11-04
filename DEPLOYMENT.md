@@ -1,6 +1,6 @@
 # Running the federation across machines
 
-One server runs the Flower **SuperLink** (the coordinator). Each laptop runs a **SuperNode** (a client) and trains on its own data. Only model weights travel between them.
+One server runs the Flower **SuperLink** (the coordinator). Each laptop runs a **SuperNode** (a client) and trains on its own data. In the MNIST demo, only model weights travel between them.
 
 ```
  laptop A (node) ──ssh tunnel──┐
@@ -12,6 +12,11 @@ One server runs the Flower **SuperLink** (the coordinator). Each laptop runs a *
 The server's firewall only allows SSH, so nodes connect through an SSH tunnel. Nothing besides SSH is exposed to the internet, and the tunnel encrypts the traffic.
 
 The demo app is [apps/mnist_fedavg](apps/mnist_fedavg). It is a toy FedAvg on MNIST: an MLP (784→128→10) trained with SGD and momentum, ported from [naderAsadi/FedAvg](https://github.com/naderAsadi/FedAvg) to the Flower Message API. Each node downloads MNIST itself (63 MB) and trains on its own slice of it.
+
+The HLCA app also sends a capped sample of derived hidden-layer embeddings,
+true labels, and predictions to the server for its shared UMAP dashboard.
+Expression matrices and cell IDs are not sent for that visualization. See
+[apps/hlca_fedavg](apps/hlca_fedavg) for the data handling details.
 
 ## Check laptop CPU performance
 

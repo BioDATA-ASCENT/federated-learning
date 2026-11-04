@@ -11,7 +11,13 @@ import torch
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
-from hlca_fedavg.task import build_model, evaluate, load_client, macro_f1, train
+from hlca_fedavg.task import (
+    build_model,
+    evaluate_detailed,
+    load_client,
+    macro_f1,
+    train,
+)
 
 app = ClientApp()
 
@@ -46,22 +52,35 @@ def train_fn(msg: Message, context: Context) -> Message:
 
 @app.evaluate()
 def evaluate_fn(msg: Message, context: Context) -> Message:
-    pid, _, model, _, val_loader, labels = _setup(msg, context)
-    loss, tp, fp, fn = evaluate(model, val_loader, len(labels))
+    pid, cfg, model, _, val_loader, labels = _setup(msg, context)
+    details = evaluate_detailed(
+        model,
+        val_loader,
+        len(labels),
+        max_embedding_cells=int(cfg["umap-sample-per-site"]),
+        seed=int(cfg["seed"]) + pid,
+    )
     n = len(val_loader.dataset)
-    local = macro_f1(tp, fp, fn)
+    local = macro_f1(details.tp, details.fp, details.fn)
     print(f"[client {pid}] local macro F1 {local:.4f} on {n} cells", flush=True)
-    # The counts travel, not the score: the server needs the totals to compute
-    # one macro F1. local_macro_f1 rides along for the per-client table only.
+    # Confusion counts cover every held-out cell; sampled hidden embeddings and
+    # predictions support a shared UMAP on the server.
     metrics = MetricRecord(
         {
             "num-examples": n,
-            "eval_loss": loss,
+            "eval_loss": details.loss,
             "local_macro_f1": local,
             "partition-id": pid,
-            "tp": tp.tolist(),
-            "fp": fp.tolist(),
-            "fn": fn.tolist(),
+            "tp": details.tp.tolist(),
+            "fp": details.fp.tolist(),
+            "fn": details.fn.tolist(),
+            "confusion": details.confusion.ravel().tolist(),
         }
     )
-    return Message(content=RecordDict({"metrics": metrics}), reply_to=msg)
+    visualization = ArrayRecord.from_numpy_ndarrays(
+        [details.embeddings, details.y_true, details.y_pred]
+    )
+    return Message(
+        content=RecordDict({"metrics": metrics, "visualization": visualization}),
+        reply_to=msg,
+    )

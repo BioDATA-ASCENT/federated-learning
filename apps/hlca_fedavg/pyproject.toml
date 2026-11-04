@@ -13,6 +13,7 @@ dependencies = [
     "scanpy",
     "anndata",
     "numpy",
+    "umap-learn",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -41,8 +42,10 @@ seed = 42
 # path relative to the repository does not resolve.
 data-dir = "~/fedbio-data/hlca"      # client_<k>.h5ad, raw counts over the contract genes
 gene-list = "~/fedbio-data/hlca/genes.txt"
+evaluation-file = "~/fedbio-data/hlca/evaluation.h5ad"
 init-model = ""           # path to a warm start state_dict, empty for a cold start
 out-dir = "~/fedbio-runs/hlca_fedavg"
+umap-sample-per-site = 1500
 
 # The supernode count is no longer set here. Flower 1.42 keeps it with the
 # federation:
