@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Join the federation as a node (SuperNode).
 #
-#   bash scripts/join_federation.sh [user@server]
+#   bash scripts/join_federation.sh                      # as user1@100.53.208.149
+#   FL_USER=user3 bash scripts/join_federation.sh        # your own login on the server
+#   bash scripts/join_federation.sh user3@other-host     # full override (or FL_SERVER=...)
 #
 # Opens an SSH tunnel to the server (SuperLink port and dashboard), then runs a
 # SuperNode in the foreground. Ctrl+C stops the node and closes the tunnel.
@@ -13,7 +15,7 @@ if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
   echo "Partition numbers are no longer needed: the server assigns them. Run: bash scripts/join_federation.sh" >&2
   exit 1
 fi
-SERVER="${1:-${FL_SERVER:-user1@100.53.208.149}}"
+SERVER="${1:-${FL_SERVER:-${FL_USER:-user1}@${FL_HOST:-100.53.208.149}}}"
 LINK_PORT="${FL_LINK_PORT:-9092}"       # SuperLink port on the server (and local end of the tunnel)
 DASH_PORT="${FL_DASH_PORT:-8050}"       # dashboard port on the server (and local end of the tunnel)
 
