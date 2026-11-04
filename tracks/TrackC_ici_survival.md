@@ -2,6 +2,18 @@
 
 Back to [README](../README.md). Data access: [quickstart.md](../quickstart.md), cBioPortal section.
 
+## Food for thought
+
+Read Andreux for the method and a cohort paper for endpoint definitions (references below).
+
+- Can OS and PFS define one prediction target? How will we verify each cohort's time origin, event coding, and patient overlap?
+- How should expansion handle censoring within a bin and events on bin boundaries? Should aggregation weight patients or expanded rows for the chosen loss?
+- Would agreement with continuous-time Cox in lifelines validate a binned logistic model? What should match a centralized implementation of the same discrete-time loss?
+- Are TMB units and missing values comparable across assays? How would we test whether mutation features improve held-out prediction beyond TMB?
+- Which patient pairs are absent from client C-indices? Can treated-only cohorts establish ICI benefit, or coefficient rankings establish biological effects?
+
+Choose one question. Start with one cohort to understand the outcome and loss, then build a two-client prototype with a common endpoint.
+
 | Item | Value |
 |---|---|
 | Task | Predict survival after immune checkpoint inhibitor (ICI) treatment |
@@ -11,11 +23,7 @@ Back to [README](../README.md). Data access: [quickstart.md](../quickstart.md), 
 | Model | Discrete-time Cox (logistic regression on a person-period table) |
 | Metric | C-index per client |
 | Stage 3 output | Genes with hazard coefficients beyond TMB, federated versus per client |
-| Status | Runs in parallel if time allows |
-
-## Why this track
-
-One drug class, several hospitals, each with its own patients. Every cohort is a published ICI study with time zero at ICI start, so the time zero problem that breaks most cross-cohort survival work is gone. The known answer is that TMB predicts ICI benefit (Samstein 2019). The open question is which genes carry signal beyond TMB, and whether pooling the small melanoma cohorts recovers it when no single cohort can.
+| Status | Parallel track choice |
 
 ## Clients
 
@@ -43,7 +51,7 @@ There is no download step. The shared loader in `fedbio/cbio.py` fetches each st
 
 ## Method
 
-Features: binary mutation calls on the gene intersection (the MSK-IMPACT panel, because the other cohorts are WES), log TMB, and cancer type as one-hot. The first run uses OS where present and PFS otherwise. The paper version runs OS-only and PFS-only subsets.
+Features: binary mutation calls on the gene intersection (the MSK-IMPACT panel, because the other cohorts are WES), log TMB, and cancer type as one-hot. Choose OS-only or PFS-only cohorts for each experiment; discuss endpoint compatibility before combining clients.
 
 The Cox partial likelihood is not separable across clients, because the risk set at each time sums over all patients. A naive FedAvg on Cox gives a stratified model. Andreux et al. (2020) replace it with a discrete-time Cox model: bin time, expand each patient into one row per bin at risk, and fit logistic regression on the expanded table with bin indicators as the baseline hazard. The loss is separable and the FedAvg loop is unchanged. `expand_survival(df, n_bins)` does the expansion per client. Bin edges are fixed server-side so the baseline hazard parameters align.
 
@@ -60,12 +68,14 @@ Stage 3: coefficients per gene from the federated model versus per client. The q
 | Preprocessing | Binarization and TMB log transform in the loader. No per-client scaling. |
 | Model | Logistic regression on the expanded table. Weight shape is (1, n_genes + 1 + n_types + n_bins). |
 
-## Tasks
+## Possible prototype milestones
+
+Choose milestones to suit your question; these are starting points for exploration.
 
 | ID | Task | Done when |
 |---|---|---|
-| M2 | cBioPortal loader (shared with Track B) | `load_client("ici", k)` returns `(X, time, event)` for 3 clients |
-| P3 | Expansion and all three stages | `expand_survival` passes a unit test against lifelines on one client. `results/C_table.csv` with C-index per client |
+| Prototype | cBioPortal loader (shared with Track B) | `load_client("ici", k)` returns `(X, time, event)` for 2 clients |
+| Explore | Expansion and all three stages | `expand_survival` passes event/censoring checks and is compared with centralized fitting of the same loss. `results/C_table.csv` with C-index per client |
 
 ## Upgrade with registration
 
