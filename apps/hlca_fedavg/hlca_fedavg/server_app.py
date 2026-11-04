@@ -173,6 +173,14 @@ def _check_nodes(grid: Grid, cfg: dict) -> None:
                 if row[2] == f"client_{pid}" and row[1] == "READY":
                     row[1], row[3] = "DUPLICATE", f"{len(nids)} nodes hold client_{pid}; keep one"
 
+    # The dashboard (apps/mnist_fedavg/dashboard.py) shows the latest check.
+    out = Path(os.path.expanduser(str(cfg["out-dir"])))
+    out.mkdir(parents=True, exist_ok=True)
+    keys = ("node", "status", "partition", "detail")
+    tmp = out / "readiness.json.tmp"
+    tmp.write_text(json.dumps({"checked_at": time.time(), "nodes": [dict(zip(keys, row)) for row in rows]}))
+    tmp.replace(out / "readiness.json")
+
     print(f"\n{'node':<22} {'status':<10} {'partition':<10} detail", flush=True)
     for nid, status, part, detail in rows:
         print(f"{nid:<22} {status:<10} {part:<10} {detail}", flush=True)
@@ -190,6 +198,7 @@ def main(grid: Grid, context: Context) -> None:
         _check_nodes(grid, cfg)
         return
     logger = JsonlLogger(str(cfg["out-dir"]), cfg)
+    logger.write("labels", labels=list(LABELS))  # names the per-class counts for the dashboard
     print(f"Writing metrics to {logger.path}", flush=True)
 
     torch.manual_seed(int(cfg["seed"]))
