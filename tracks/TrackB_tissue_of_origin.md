@@ -2,6 +2,17 @@
 
 Back to [README](../README.md). Data access: [quickstart.md](../quickstart.md), cBioPortal section.
 
+## Food for thought
+
+Read MSK-CHORD and inspect the cBioPortal API (references below).
+
+- Does a shared study-level gene list guarantee coverage for every sample and panel version? When is an absent mutation or CNA record a valid zero?
+- Could TCGA and PCAWG contain the same patients? How would overlap across cohorts or repeated samples within a patient affect train/test splits?
+- Do the cohorts encode cancer types consistently, including lung subtypes? Could label or assay differences explain apparent client gains?
+- If amplification and deletion share one binary feature, which signal is lost? What evidence would justify interpreting a predictive coefficient as a driver?
+
+Choose one question and begin with two clients and a small shared feature set. Add CNA or another cohort as the experiment develops.
+
 | Item | Value |
 |---|---|
 | Task | Predict cancer type from tumor genomics |
@@ -11,11 +22,7 @@ Back to [README](../README.md). Data access: [quickstart.md](../quickstart.md), 
 | Model | Logistic regression |
 | Metric | Macro F1 |
 | Stage 3 output | Driver genes per cancer type, federated versus per client |
-| Status | Runs in parallel if time allows |
-
-## Why this track
-
-The feature shift across clients is real and known: MSK-IMPACT is a 505-gene panel, TCGA is whole exome, PCAWG is whole genome. After the gene intersection, the clients still differ in sequencing depth, calling pipelines, and CNA thresholds. A loss to the pooled model is a result, not a failure. The task has a clean label and a known answer (tissue-specific drivers), so Stage 3 is checkable.
+| Status | Parallel track choice |
 
 ## Data
 
@@ -47,12 +54,14 @@ The loader lives in `fedbio/cbio.py` and is shared with Track C.
 | Preprocessing | Binarization thresholds (CNA ±2) fixed in the loader. No scaling needed for binary features. |
 | Model | Same as Track A. |
 
-## Tasks
+## Possible prototype milestones
+
+Choose milestones to suit your question; these are starting points for exploration.
 
 | ID | Task | Done when |
 |---|---|---|
-| M2 | cBioPortal loader | `load_client("tissue", k)` returns data for 3 clients |
-| P2 | All three stages | `results/B_table.csv` with local, FedAvg, pooled columns |
+| Prototype | cBioPortal loader | `load_client("tissue", k)` returns data for 2 clients |
+| Explore | All three stages | `results/B_table.csv` with local, FedAvg, pooled columns |
 
 ## References
 

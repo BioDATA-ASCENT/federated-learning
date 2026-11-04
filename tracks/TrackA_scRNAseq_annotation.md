@@ -2,6 +2,17 @@
 
 Back to [README](../README.md). Data download: [quickstart.md](../quickstart.md).
 
+## Food for thought
+
+Read scFed for the method and HLCA for the data (references below).
+
+- Could cells from one donor appear in both training and testing? What changes if donors are held out instead?
+- HVGs are selected before splitting in the proposed recipe. How could test cells influence feature selection, and how would training-only selection change the experiment?
+- If clients min-max scale genes separately, does the same coefficient represent the same expression change? What does that mean for averaging weights and comparing gene rankings?
+- What evidence turns a predictive coefficient into a marker gene? Are scFed's held-out-dataset scores comparable to our within-client evaluation?
+
+Choose one question, start with a small pancreas prototype, and expand toward HLCA or interpretation as useful.
+
 | Item | Value |
 |---|---|
 | Task | Cell type classification |
@@ -12,11 +23,7 @@ Back to [README](../README.md). Data download: [quickstart.md](../quickstart.md)
 | Metric | Macro F1 |
 | Stage 3 output | Marker genes per cell type, federated versus per client |
 | Smoke test data | scIB human pancreas, one client per `tech` value |
-| Status | Runs in the hackathon |
-
-## Why this track
-
-scFed (Wang et al. 2024) shows federated cell type classification works. The new parts are Stage 2 (per-client gain) and Stage 3 (federated versus local marker genes). HLCA is built from 14 datasets with different protocols, so the client split is a real "different labs" split. HLCA's own claim is that pooling datasets improves rare cell type annotation. Stage 2 tests that claim under FL.
+| Status | Parallel track choice |
 
 ## Data
 
@@ -60,18 +67,14 @@ scFed is a custom socket-based framework, not Flower, so none of its FL code tra
 
 `client_app.py` reads `partition-id` from the node config, calls `load_client(track, k)`, and the `@app.train()` handler fits for E epochs from the received weights. `server_app.py` calls `Grid.send_and_receive` per round and averages by sample count. The same app runs in simulation (`flwr run .`) and on six laptops (`flwr run . lab-federation`) with no code change.
 
-## Tasks
+## Possible prototype milestones
+
+Choose milestones to suit your question; these are starting points for exploration.
 
 | ID | Task | Done when |
 |---|---|---|
-| M1 | HLCA partitions on every laptop | `load_client("hlca", k)` returns HLCA data in under 10 s |
-| P1 | Stage 3 | Top 10 genes per cell type, federated and per client, one table |
-
-## Questions the team may ask
-
-- Should we integrate (scVI, Harmony) before classifying? No. Integration needs all cells in one place, which breaks the premise. FedscGen (2024) does federated batch correction and is the answer if someone wants to go there after the hackathon.
-- Why not a neural network? Logistic regression makes FedAvg exact and gives Stage 3 for free. A PyTorch MLP is the second model once the table exists.
-- Why pancreas and not a synthetic dataset for testing? Real data are abundant for this task. A synthetic dataset tests only the plumbing. The pancreas data test the plumbing and the algorithm, and give a published number to compare against.
+| Prototype | HLCA partitions on every laptop | `load_client("hlca", k)` returns HLCA data in under 10 s |
+| Explore | Stage 3 | Top 10 genes per cell type, federated and per client, one table |
 
 ## References
 
