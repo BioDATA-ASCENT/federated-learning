@@ -6,18 +6,18 @@ Start with [quickstart.md](quickstart.md). It sets up the environment and downlo
 
 ## Food for thought
 
-Start with the FedAvg paper and your track's method and dataset references below. Share the assumptions and one idea worth testing, then discuss:
+Start with the FedAvg paper and your track's method and dataset references below. Use these questions to examine the proposed design before prototyping:
 
-- Who are the clients, and what must agree across their features, labels, preprocessing, and models?
-- What stays local? Which steps assume access to pooled data?
-- What should the held-out test measure: new cells, new donors or patients, or a new institution?
-- When might collaboration help or hurt, and how would we detect that for each client?
+- Does averaging locally trained logistic regressions reproduce pooled training? How do local epochs, initialization, and learning rates affect the comparison?
+- Which preprocessing steps use pooled or held-out data? What does that imply for the federation and evaluation?
+- How should missing classes enter macro F1? Is averaging client scores equivalent to evaluating pooled predictions?
+- If attribution is the global coefficient vector, does computing it at every client add information? What would make an attribution data-dependent?
 
 Choose a track and one question to explore with a small prototype. The three stages below give a common direction; participants choose how far to take them for the demo.
 
 ## The three stages
 
-All tracks share one FedAvg loop, one client interface, and one result table.
+All tracks use one FedAvg loop, one client interface, and one result table.
 
 1. **Federated training.** Client: receive global weights, train locally for E epochs, return weights and sample count. Server: weighted average, repeat for R rounds. Crosses the wire: weights only.
 2. **Federated inference.** Client: evaluate the global model on local held-out data, return the metric. Server: report per client and as a weighted mean. Output: the main table (rows = clients, columns = local, FedAvg, pooled) and one plot of per-client gain.
@@ -27,16 +27,16 @@ All tracks share one FedAvg loop, one client interface, and one result table.
 
 FL works only when every client agrees on four things before the first round. The morning session makes each one explicit, because this is where real federations fail.
 
-| Contract | What every client must agree on | Where it lives in the code | What breaks if violated |
-|---|---|---|---|
-| Feature | Same features, same order, same units | `make_partitions.py` fixes the gene list and order. `load_client` asserts `X.shape[1]` | Weight matrices do not align. Averaging is silent nonsense. |
-| Label | Same class set, same encoding, fixed server-side | `fedbio/data.py` holds `LABELS`. A client with a missing class still returns the full weight shape | Client with 8 classes and client with 10 classes cannot average |
-| Preprocessing | Which steps run per client (normalize, log, scale) and which run once on the union (HVG selection) | Per-client steps in `load_client`. Union steps in `make_partitions.py` | Per-client HVG gives different gene sets. Union scaling leaks data across clients |
-| Model | Same architecture, same parameter shapes, same serialization order | `fedbio/model.py`: `get_weights` returns `[coef_, intercept_]` in that order | Server cannot sum arrays of different shapes |
+| Contract | What every client must agree on | What breaks if violated |
+|---|---|---|
+| Feature | Same features, same order, same units. Fix the feature list once, outside the clients | Weight matrices do not align. Averaging is silent nonsense. |
+| Label | Same class set, same encoding, fixed server-side. A client with a missing class still returns the full weight shape | Client with 8 classes and client with 10 classes cannot average |
+| Preprocessing | Which steps run per client (normalize, log, scale) and which run once on the union (HVG selection) | Per-client HVG gives different gene sets. Union scaling leaks data across clients |
+| Model | Same architecture, same parameter shapes, same serialization order. Serialize the logistic regression as `[coef_, intercept_]` | Server cannot sum arrays of different shapes |
 
 Two more contracts matter in deployment and are noted, not coded, in the hackathon: the metric contract (every client computes the same metric the same way, on a held-out split the server never sees) and the schema contract (the message format between client and server, which Flower fixes with `ArrayRecord` and `MetricRecord`).
 
-The pancreas prototype makes these contracts visible. Each track then explores what changes for its own data.
+The pancreas data make these contracts concrete. Each track then explores what changes for its own data.
 
 ## Data
 
@@ -44,11 +44,11 @@ All data in this project are real and public. The repository holds no synthetic 
 
 | Dataset | Used for | Clients | Size | Source |
 |---|---|---|---|---|
-| Human pancreas, 9 technologies (scIB benchmark) | Smoke test, unit tests, the first end-to-end run | One per `tech` value | 16,382 cells, 19,093 genes | [figshare](https://ndownloader.figshare.com/files/24539828) |
+| Human pancreas, 9 technologies (scIB benchmark) | Smoke test and the first end-to-end run | One per `tech` value | 16,382 cells, 19,093 genes | [figshare](https://ndownloader.figshare.com/files/24539828) |
 | Human Lung Cell Atlas core (Sikkema et al. 2023) | Track A demo | One per `dataset` value, 14 labs | 584,944 cells, 27,402 genes, 5.87 GB h5ad | [CELLxGENE](https://cellxgene.cziscience.com/collections/6f6d381a-7701-4781-935c-db10d30de293) |
 | cBioPortal studies | Tracks B and C | One per study | Hundreds to thousands of samples per study, fetched by API | [cBioPortal](https://www.cbioportal.org) |
 
-The pancreas data are small and come from nine different protocols. That is the same multi-lab structure as the HLCA, at one thirty-fifth the cell count. The pipeline runs on it first. Every test runs on it. scFed (Wang et al. 2024) also benchmarked on pancreas data, so its reported numbers are a reference point.
+The pancreas data are small and come from nine different protocols. That is the same multi-lab structure as the HLCA, at one thirty-fifth the cell count. Build and test on it first. scFed (Wang et al. 2024) also benchmarked on pancreas data, so its reported numbers are a reference point.
 
 ## Tracks
 
@@ -62,15 +62,9 @@ The tracks are parallel choices. Work individually or in pairs on the problem th
 
 ## Before the hackathon
 
-The organizers ask for a full prototype by noon. So the whole pipeline runs end to end on the pancreas data before the hackathon starts. This provides a shared walkthrough and a fallback while participants explore their chosen tracks.
+The organizers ask for a full prototype by noon. So a pipeline must run end to end on the pancreas data before the hackathon starts. It provides a shared walkthrough and a fallback while participants explore their chosen tracks. [Progress.md](Progress.md) lists the parts to build and the condition that closes each one.
 
-- `fedbio/data.py`: `load_client(track, k) -> (X_train, y_train, X_test, y_test)`. Tracks: `pancreas`, `hlca`, `tissue`, `ici`.
-- `fedbio/model.py`: `fit`, `get_weights`, `set_weights`, `evaluate`, `attribute`. Logistic regression.
-- `fedbio/fedavg.py`: the hand-written loop, about 40 lines of NumPy. Runs local, FedAvg, and pooled. Writes `results/<track>_table.csv` and the top-feature table.
-- `fedbio_app/`: Flower app from `flwr new`. `server_app.py` uses `Grid.send_and_receive` so the aggregation stays visible. `client_app.py` reads `partition-id` and calls `load_client`.
-- `plot_gain.py`: the per-client gain figure.
-- `make_partitions.py`: writes `data/<track>_client_K.h5ad` from the pancreas file or from the HLCA core file.
-- `make test`: runs the full pipeline on the pancreas data. Target: under five minutes on a laptop.
+The repository now holds the environment, the download script, and these docs. No pipeline code exists yet.
 
 Framework: Flower, `flwr[simulation]==1.42.0`, Python 3.11 or 3.12, Message API only (`ServerApp`, `ClientApp`, `Grid`, `@app.train()`). Tutorials that use `NumPyClient`, `server_fn`, or `start_simulation` are the old API. Do not follow them.
 
@@ -89,13 +83,13 @@ These are shared checkpoints. Participants choose their experiments and can adju
 | 4:00 | Rehearse | Explain the question, setup, result, and limitations. |
 | 5:00 | Present | Show the demo and the next experiment you would try. |
 
-Possible experiments: adapt the loader to a chosen track, write a small FedAvg loop, vary local epochs or client balance, compare local/FedAvg/pooled performance, inspect feature weights, or move a working experiment into Flower. Deployment and all three stages remain options; each participant chooses a manageable contribution.
+Possible experiments: write a loader for a chosen track, write a small FedAvg loop, vary local epochs or client balance, compare local/FedAvg/pooled performance, inspect feature weights, or move a working experiment into Flower. Deployment and all three stages remain options; each participant chooses a manageable contribution.
 
 Commit working changes regularly. Ask after 20 minutes stuck. Aim for a runnable comparison and one table or plot per active track. A negative result is useful; if only part of the pipeline works, demonstrate it and explain what remains. Simulation and saved outputs are the demo fallback.
 
 ## After the hackathon
 
-Six-laptop deployment with Flower's Deployment Engine (one SuperLink, one SuperNode per laptop, same app code). Differential privacy with `LocalDpMod`. Secure aggregation. Nearest resource paper: the three-stage protocol across task types on open data, in simulation and deployment. FLamby (2022) has one survival task and no omics. scFed covers one task. No benchmark we found has a federated inference and interpretation stage.
+Six-laptop deployment with Flower's Deployment Engine (one SuperLink, one SuperNode per laptop). Differential privacy with `LocalDpMod`. Secure aggregation. Nearest resource paper: the three-stage protocol across task types on open data, in simulation and deployment. FLamby (2022) has one survival task and no omics. scFed covers one task. No benchmark we found has a federated inference and interpretation stage.
 
 ## References
 
