@@ -47,13 +47,13 @@ Two checks before use:
 
 Attributes per study. `tmb_mskcc_2018`: `OS_MONTHS`, `OS_STATUS` from first ICI, `DRUG_TYPE`, `TMB_NONSYNONYMOUS`, `CANCER_TYPE`. `mel_dfci_2019`: OS, PFS, `IO_THERAPY`, `PRIOR_CTLA4`, RECIST best response, `TMB_NONSYNONYMOUS`. `skcm_dfci_2015`: OS, `TREATMENT`, `DURABLE_CLINICAL_BENEFIT`, `MUTATION_LOAD`. `nsclc_mskcc_2018`: PFS, `BEST_OVERALL_RESPONSE`, `PDL1_EXP`, `TMB_NONSYNONYMOUS`.
 
-There is no download step. The shared loader in `fedbio/cbio.py` fetches each study on first use and caches it in `data/cbio/<study_id>/`. Tests run on the cached files. The unit test for `expand_survival` runs on client 3 (`mel_dfci_2019`, 144 patients), the smallest client with both OS and PFS.
+There is no download step. The shared loader fetches each study on first use and caches it in `data/cbio/<study_id>/`. Tests run on the cached files. Test the time expansion on client 3 (`mel_dfci_2019`, 144 patients), the smallest client with both OS and PFS.
 
 ## Method
 
 Features: binary mutation calls on the gene intersection (the MSK-IMPACT panel, because the other cohorts are WES), log TMB, and cancer type as one-hot. Choose OS-only or PFS-only cohorts for each experiment; discuss endpoint compatibility before combining clients.
 
-The Cox partial likelihood is not separable across clients, because the risk set at each time sums over all patients. A naive FedAvg on Cox gives a stratified model. Andreux et al. (2020) replace it with a discrete-time Cox model: bin time, expand each patient into one row per bin at risk, and fit logistic regression on the expanded table with bin indicators as the baseline hazard. The loss is separable and the FedAvg loop is unchanged. `expand_survival(df, n_bins)` does the expansion per client. Bin edges are fixed server-side so the baseline hazard parameters align.
+The Cox partial likelihood is not separable across clients, because the risk set at each time sums over all patients. A naive FedAvg on Cox gives a stratified model. Andreux et al. (2020) replace it with a discrete-time Cox model: bin time, expand each patient into one row per bin at risk, and fit logistic regression on the expanded table with bin indicators as the baseline hazard. The loss is separable and the FedAvg loop is unchanged. Each client expands its own table. Bin edges are fixed server-side so the baseline hazard parameters align.
 
 Stage 2: each client computes the C-index on local held-out patients. The C-index is pairwise, so a cross-client C-index needs patient pairs across sites. That is an open problem and future work.
 
@@ -63,7 +63,7 @@ Stage 3: coefficients per gene from the federated model versus per client. The q
 
 | Contract | How Track C meets it |
 |---|---|
-| Feature | Gene intersection fixed in `fedbio/cbio.py`. Plus log TMB, plus cancer type one-hot over a fixed type list. |
+| Feature | Gene intersection fixed in the loader. Plus log TMB, plus cancer type one-hot over a fixed type list. |
 | Label | Time in months, event 0/1. Outcome type (OS or PFS) recorded per client and reported. Time bin edges fixed server-side. |
 | Preprocessing | Binarization and TMB log transform in the loader. No per-client scaling. |
 | Model | Logistic regression on the expanded table. Weight shape is (1, n_genes + 1 + n_types + n_bins). |
@@ -74,8 +74,8 @@ Choose milestones to suit your question; these are starting points for explorati
 
 | ID | Task | Done when |
 |---|---|---|
-| Prototype | cBioPortal loader (shared with Track B) | `load_client("ici", k)` returns `(X, time, event)` for 2 clients |
-| Explore | Expansion and all three stages | `expand_survival` passes event/censoring checks and is compared with centralized fitting of the same loss. `results/C_table.csv` with C-index per client |
+| Prototype | cBioPortal loader (shared with Track B) | The loader returns `(X, time, event)` for 2 clients |
+| Explore | Expansion and all three stages | The expansion passes event and censoring checks, and matches a centralized fit of the same loss. A result table with the C-index per client |
 
 ## Upgrade with registration
 

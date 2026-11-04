@@ -27,7 +27,7 @@ Choose one question, start with a small pancreas prototype, and expand toward HL
 
 ## Data
 
-Two real datasets. The pipeline is written once and runs on both. The track name selects the dataset: `load_client("pancreas", k)` or `load_client("hlca", k)`.
+Two real datasets. Write the loader once and run it on both. A track name selects the dataset.
 
 ### Pancreas (smoke test)
 
@@ -35,11 +35,11 @@ The scIB human pancreas benchmark: 16,382 cells, 19,093 genes, nine protocols (c
 
 ### HLCA core (demo)
 
-584,944 cells, 28,024 genes, 107 donors, 14 datasets, CC BY 4.0. The h5ad on CELLxGENE is 5.9 GB (dataset id `066943a2-fdac-4b29-b348-40cede398e4e`). The lead downloads it once. The team never touches it. Raw counts are in `adata.raw.X`. Metadata description: https://github.com/LungCellAtlas/HLCA (docs/HLCA_metadata_explanation.csv).
+584,944 cells, 27,402 genes, 107 donors, 14 datasets, CC BY 4.0. The h5ad on CELLxGENE is 5.87 GB (dataset id `066943a2-fdac-4b29-b348-40cede398e4e`). The lead downloads it once. The team never touches it. Raw counts are in `adata.raw.X`. Metadata description: https://github.com/LungCellAtlas/HLCA (docs/HLCA_metadata_explanation.csv).
 
 ### Partitions
 
-`make_partitions.py` runs once per dataset and writes `data/<track>_client_K.h5ad`, a few MB each:
+Partition each dataset once. Write one file per client into `data/`, a few MB each:
 
 1. Read the source file. For HLCA, keep the 5 or 6 largest `dataset` values. For pancreas, keep all nine `tech` values.
 2. Compute HVGs on the union with `batch_key` set to the client column, so the gene set is shared. This is the one preprocessing step that runs on pooled data, and it is declared as such.
@@ -58,14 +58,14 @@ scFed is a custom socket-based framework, not Flower, so none of its FL code tra
 
 | Contract | How Track A meets it |
 |---|---|
-| Feature | `make_partitions.py` fixes 2000 genes in one order. `load_client` asserts the count and order. |
-| Label | `LABELS` is the union of the label column across the chosen clients, fixed in `fedbio/data.py`. A client missing a class still returns a weight matrix of shape (n_labels, 2000). |
+| Feature | The partition step fixes 2000 genes in one order. Each client asserts the count and the order when it loads its file. |
+| Label | The label list is the union of the label column across the chosen clients, fixed server-side. A client missing a class still returns a weight matrix of shape (n_labels, 2000). |
 | Preprocessing | HVG selection on the union, once, declared. CPM, log, and scaling per client. Normalization statistics differ by client. That is the non-IID feature shift FedAvg must absorb. |
-| Model | `get_weights` returns `[coef_, intercept_]`. Shapes (n_labels, 2000) and (n_labels,). Stage 3 attribution is `coef_` per class. |
+| Model | Serialize the weights as `[coef_, intercept_]`. Shapes (n_labels, 2000) and (n_labels,). Stage 3 attribution is `coef_` per class. |
 
 ## Flower setup
 
-`client_app.py` reads `partition-id` from the node config, calls `load_client(track, k)`, and the `@app.train()` handler fits for E epochs from the received weights. `server_app.py` calls `Grid.send_and_receive` per round and averages by sample count. The same app runs in simulation (`flwr run .`) and on six laptops (`flwr run . lab-federation`) with no code change.
+The client reads `partition-id` from the node config, loads that client's data, and fits for E epochs from the received weights in an `@app.train()` handler. The server calls `Grid.send_and_receive` per round and averages by sample count. One app can run in simulation and on six laptops with no code change.
 
 ## Possible prototype milestones
 
@@ -73,7 +73,7 @@ Choose milestones to suit your question; these are starting points for explorati
 
 | ID | Task | Done when |
 |---|---|---|
-| Prototype | HLCA partitions on every laptop | `load_client("hlca", k)` returns HLCA data in under 10 s |
+| Prototype | HLCA partitions on every laptop | A laptop loads one HLCA client in under 10 s |
 | Explore | Stage 3 | Top 10 genes per cell type, federated and per client, one table |
 
 ## References
