@@ -1,13 +1,13 @@
 # Progress
 
-One line per item. Check the box when the "done when" condition in the README holds. Add the date and your initials.
+Check completed preparation and chosen milestones. Add the date and your initials. Use the README and track docs for experiment ideas.
 
 ## Before the hackathon
 
 - [ ] 1. Decide a name for the project. The name sets the repository name, the Python package name (now `fedbio`), and the Flower app name (now `fedbio_app`).
 - [x] 2. Environment: `uv sync` works on a clean laptop. `python -c "import flwr"` prints `1.42.0`. ([quickstart.md](quickstart.md)) 2026-11-03 MV
-- [ ] 3. Pancreas data downloaded on every laptop.
-- [ ] 4. HLCA core downloaded on the lead's laptop.
+- [x] 3. Pancreas data downloaded on every laptop. 2026-11-03 MV (lead's laptop. 16,382 cells, 19,093 genes, 9 techs.)
+- [x] 4. HLCA core downloaded on the lead's laptop. 2026-11-03 MV (5.87 GB, 584,944 cells, 27,402 genes, 14 datasets.)
 - [ ] 5. `make_partitions.py` writes one h5ad per `tech` value from the pancreas file.
 - [ ] 6. `fedbio/data.py`: `load_client("pancreas", k)` returns `(X_train, y_train, X_test, y_test)` with a fixed gene order and the full label set.
 - [ ] 7. `fedbio/model.py`: `fit`, `get_weights`, `set_weights`, `evaluate`, `attribute` on logistic regression.
@@ -18,25 +18,15 @@ One line per item. Check the box when the "done when" condition in the README ho
 - [ ] 12. `make test` runs items 5 to 11 end to end in under five minutes.
 - [ ] 13. `make_partitions.py` writes `data/hlca_client_K.h5ad` for the 5 or 6 largest HLCA datasets. Files shared with the team.
 
-## Hackathon morning
+## Hackathon checkpoints
 
-- [ ] M1. `load_client("hlca", k)` returns HLCA data on every laptop in under 10 s.
-- [ ] M2. `load_client("tissue", k)` and `load_client("ici", k)` return data for 3 clients each.
-- [ ] M3. Own rewrite of `fedavg.py` gives the same numbers as the prototype on the pancreas data.
-- [ ] M4. `flwr run .` on HLCA matches M3 within one point.
-- [ ] M5. Gain figure renders from `results/A_table.csv`.
-- [ ] 12:00 go/no-go: table, plot, and top genes on HLCA.
-
-## Hackathon afternoon
-
-- [ ] P1. Track A Stage 3: top 10 genes per cell type, federated and per client, one table.
-- [ ] P2. Track B: `results/B_table.csv` with local, FedAvg, pooled columns.
-- [ ] P3. Track C: `expand_survival` passes a unit test against lifelines on one client. `results/C_table.csv` with C-index per client.
-- [ ] P4. Flower prints per-client metrics and averaged attribution.
-- [ ] P5. A reader can run the demo from the README. Slides done.
-- [ ] 3:00 code freeze.
-- [ ] Six-laptop run of Track A (simulation is the backup).
-- [ ] 5:00 presentation.
+- [ ] Share ideas from the literature and discuss the chosen track's questions.
+- [ ] Choose a question and the smallest useful prototype, individually or in pairs.
+- [ ] Noon: show what runs, what was learned, and what remains; choose an afternoon experiment.
+- [ ] Run the experiment and prepare a table or plot with its assumptions and limitations.
+- [ ] 3:00: preserve the working demo and saved outputs.
+- [ ] 4:00: rehearse.
+- [ ] 5:00: present the result and next experiment.
 
 ## After the hackathon
 
