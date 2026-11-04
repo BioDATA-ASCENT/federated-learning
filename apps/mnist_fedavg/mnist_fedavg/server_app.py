@@ -14,7 +14,14 @@ from datetime import datetime
 from pathlib import Path
 
 import torch
-from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, RecordDict
+from flwr.app import (
+    ArrayRecord,
+    ConfigRecord,
+    Context,
+    Message,
+    MetricRecord,
+    RecordDict,
+)
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg
 from flwr.serverapp.strategy.strategy_utils import aggregate_metricrecords
@@ -55,21 +62,67 @@ class LoggingFedAvg(FedAvg):
     connect later are left out until the next run, which keeps the split fixed.
     """
 
-    def __init__(self, logger: JsonlLogger, **kwargs):
+    def __init__(self, logger: JsonlLogger, response_timeout: float, **kwargs):
         super().__init__(**kwargs)
         self.logger = logger
+        self.response_timeout = response_timeout
         self.partitions: dict[int, int] = {}  # node_id -> partition-id
+        self._configured_nodes: dict[str, set[int]] = {}
 
-    def _construct_messages(self, record: RecordDict, node_ids: list[int], message_type: str):
+    def _remember_configured_nodes(self, phase: str, messages: list[Message]) -> None:
+        self._configured_nodes[phase] = {
+            msg.metadata.dst_node_id
+            for msg in messages
+            if msg.metadata.dst_node_id is not None
+        }
+
+    def _log_missing_nodes(
+        self, phase: str, server_round: int, replies: list[Message]
+    ) -> None:
+        configured = self._configured_nodes.pop(phase, set())
+        replied = {
+            msg.metadata.src_node_id
+            for msg in replies
+            if msg.metadata.src_node_id is not None
+        }
+        for node in sorted(configured - replied):
+            self.logger.write(
+                "node_timeout",
+                round=server_round,
+                phase=phase,
+                node=str(node),
+                response_timeout_s=self.response_timeout,
+            )
+            print(
+                f"[server] node {node} timed out during {phase} in round "
+                f"{server_round}; skipping it for this phase",
+                flush=True,
+            )
+
+    def _construct_messages(
+        self, record: RecordDict, node_ids: list[int], message_type: str
+    ) -> list[Message]:
         if not self.partitions:
             self.partitions = {nid: i for i, nid in enumerate(sorted(node_ids))}
             n = len(self.partitions)
-            print(f"Assigned {n} partitions: " + ", ".join(f"node {nid} -> {p}" for nid, p in self.partitions.items()), flush=True)
-            self.logger.write("partitions", num_partitions=n, assignment={str(k): v for k, v in self.partitions.items()})
+            assignment = ", ".join(
+                f"node {nid} -> {partition}"
+                for nid, partition in self.partitions.items()
+            )
+            print(f"Assigned {n} partitions: {assignment}", flush=True)
+            self.logger.write(
+                "partitions",
+                num_partitions=n,
+                assignment={str(k): v for k, v in self.partitions.items()},
+            )
 
         late = [nid for nid in node_ids if nid not in self.partitions]
         if late:
-            print(f"Skipping {len(late)} node(s) that joined mid-run (they join from the next run): {late}", flush=True)
+            print(
+                f"Skipping {len(late)} node(s) that joined mid-run "
+                f"(they join from the next run): {late}",
+                flush=True,
+            )
 
         messages = []
         for nid in node_ids:
@@ -78,8 +131,30 @@ class LoggingFedAvg(FedAvg):
             config = ConfigRecord(dict(record[self.configrecord_key]))
             config["partition-id"] = self.partitions[nid]
             config["num-partitions"] = len(self.partitions)
-            content = RecordDict({self.arrayrecord_key: record[self.arrayrecord_key], self.configrecord_key: config})
-            messages.append(Message(content=content, message_type=message_type, dst_node_id=nid))
+            content = RecordDict(
+                {
+                    self.arrayrecord_key: record[self.arrayrecord_key],
+                    self.configrecord_key: config,
+                }
+            )
+            messages.append(
+                Message(
+                    content=content,
+                    message_type=message_type,
+                    dst_node_id=nid,
+                )
+            )
+        return messages
+
+    def configure_train(
+        self,
+        server_round: int,
+        arrays: ArrayRecord,
+        config: ConfigRecord,
+        grid: Grid,
+    ) -> Iterable[Message]:
+        messages = list(super().configure_train(server_round, arrays, config, grid))
+        self._remember_configured_nodes("train", messages)
         return messages
 
     def _log_replies(self, kind: str, server_round: int, replies: list[Message]) -> None:
@@ -93,11 +168,26 @@ class LoggingFedAvg(FedAvg):
 
     def aggregate_train(self, server_round: int, replies: Iterable[Message]):
         replies = list(replies)
+        self._log_missing_nodes("train", server_round, replies)
         self._log_replies("client_train", server_round, replies)
         return super().aggregate_train(server_round, replies)
 
+    def configure_evaluate(
+        self,
+        server_round: int,
+        arrays: ArrayRecord,
+        config: ConfigRecord,
+        grid: Grid,
+    ) -> Iterable[Message]:
+        messages = list(
+            super().configure_evaluate(server_round, arrays, config, grid)
+        )
+        self._remember_configured_nodes("evaluate", messages)
+        return messages
+
     def aggregate_evaluate(self, server_round: int, replies: Iterable[Message]):
         replies = list(replies)
+        self._log_missing_nodes("evaluate", server_round, replies)
         self._log_replies("client_eval", server_round, replies)
         agg = super().aggregate_evaluate(server_round, replies)
         if agg is not None:
@@ -125,6 +215,7 @@ def main(grid: Grid, context: Context) -> None:
     min_nodes = int(cfg["min-nodes"])
     strategy = LoggingFedAvg(
         logger,
+        response_timeout=float(cfg["response-timeout-seconds"]),
         min_train_nodes=min_nodes,
         min_evaluate_nodes=min_nodes,
         min_available_nodes=min_nodes,
@@ -135,6 +226,7 @@ def main(grid: Grid, context: Context) -> None:
         grid=grid,
         initial_arrays=initial,
         num_rounds=int(cfg["num-server-rounds"]),
+        timeout=float(cfg["response-timeout-seconds"]),
         evaluate_fn=central_eval,
     )
 

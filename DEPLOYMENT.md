@@ -81,10 +81,11 @@ flwr run apps/mnist_fedavg aws --stream -c 'min-nodes=4 num-server-rounds=20'
 ```
 
 - `min-nodes` (default 2) makes the run wait until at least that many nodes are connected. Every node online at that moment takes part. Check who is online with `flwr supernode list aws`. The run log prints the partition assignment, for example `Assigned 3 partitions: node 1541… -> 0, ...`.
+- `response-timeout-seconds` sets the deadline for each client train/evaluate phase (default: 120). A node that misses it is logged as `node_timeout` and skipped for that phase; replies received in time are still aggregated. The node is retried in later phases/rounds if it is still connected. This does not forcibly terminate a stuck client process.
 - Everything in the `[tool.flwr.app.config]` section of [apps/mnist_fedavg/pyproject.toml](apps/mnist_fedavg/pyproject.toml) can be overridden with `-c`. Useful ones:
   - `non-iid=true`: each client gets only some digits. This is the interesting case for federated learning.
   - `local-epochs=5`: more local training between averaging rounds.
-  - `lr`, `momentum`, `batch-size`.
+  - `lr`, `momentum`, `batch-size`, `response-timeout-seconds`.
 - Each run writes `~/fedbio-runs/mnist_fedavg/<timestamp>/metrics.jsonl` and `final_model.pt` on the server.
 
 **Stop everything:** `tmux kill-session -t fl`. Logs are kept in `~/fl-logs/`.
@@ -110,6 +111,7 @@ The IID run matched a local simulation to four decimals, because the runs are de
 | `Permission denied` or a password prompt from the join script | SSH key login isn't set up. Repeat step 1 |
 | `Local port 9092 is already in use` | An old tunnel or node is still running. Stop it, or use `FL_LINK_PORT=9192 FL_DASH_PORT=8150 bash scripts/join_federation.sh ...` and open `localhost:8150` |
 | `FileNotFoundError: 'flower-superexec'` | The venv wasn't on PATH. The join script handles this. If you start `flower-supernode` by hand, run `source .venv/bin/activate` first |
+| `[server] node ... timed out` | That node did not reply before `response-timeout-seconds`; the current phase proceeds with the replies received. Check that laptop's client output and connection. |
 | A round reports `1 failures` with `Node Unavailable`, and the dashboard shows a client error | A node left less than about a minute ago, and the SuperLink still counted it. The round goes on with the remaining nodes. Wait a minute after nodes leave before starting a run |
 | The round never starts | Fewer nodes are connected than `min-nodes`. Check the SuperLink window (`tmux attach -t fl`) for `Activated node_id` lines |
 | `No evaluate function registered` | The app has no `@app.evaluate()`. Our app has one. With your own app, add one, or set `fraction_evaluate=0.0` |

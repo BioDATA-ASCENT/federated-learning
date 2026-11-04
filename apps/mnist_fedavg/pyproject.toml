@@ -35,6 +35,7 @@ non-iid = false           # false: IID split. true: McMahan shard split (each cl
 shards-per-client = 2     # used only when non-iid = true
 val-fraction = 0.1        # share of each client's partition held out for local evaluation
 min-nodes = 2             # wait for this many SuperNodes before each round
+response-timeout-seconds = 120  # stop waiting for each train/evaluate phase after this long
 seed = 42                 # every node must use the same seed so partitions do not overlap
 data-root = "~/.cache/fedbio/mnist"
 out-dir = "~/fedbio-runs/mnist_fedavg"
