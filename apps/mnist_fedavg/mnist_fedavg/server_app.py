@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 import torch
-from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
+from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, RecordDict
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg
 from flwr.serverapp.strategy.strategy_utils import aggregate_metricrecords
@@ -46,11 +46,41 @@ def _drop_partition_id(contents: list[RecordDict], weighting_key: str) -> Metric
 
 
 class LoggingFedAvg(FedAvg):
-    """Plain FedAvg that also records every client's reply before aggregating."""
+    """FedAvg that assigns data partitions to nodes and logs every client's reply.
+
+    Partitions: the first time messages go out, the nodes online at that moment
+    are frozen as this run's participants and numbered 0..N-1 (sorted by node
+    ID), with N = their count. Every message carries that node's partition-id
+    and num-partitions in its config, so nobody passes IDs by hand. Nodes that
+    connect later are left out until the next run, which keeps the split fixed.
+    """
 
     def __init__(self, logger: JsonlLogger, **kwargs):
         super().__init__(**kwargs)
         self.logger = logger
+        self.partitions: dict[int, int] = {}  # node_id -> partition-id
+
+    def _construct_messages(self, record: RecordDict, node_ids: list[int], message_type: str):
+        if not self.partitions:
+            self.partitions = {nid: i for i, nid in enumerate(sorted(node_ids))}
+            n = len(self.partitions)
+            print(f"Assigned {n} partitions: " + ", ".join(f"node {nid} -> {p}" for nid, p in self.partitions.items()), flush=True)
+            self.logger.write("partitions", num_partitions=n, assignment={str(k): v for k, v in self.partitions.items()})
+
+        late = [nid for nid in node_ids if nid not in self.partitions]
+        if late:
+            print(f"Skipping {len(late)} node(s) that joined mid-run (they join from the next run): {late}", flush=True)
+
+        messages = []
+        for nid in node_ids:
+            if nid not in self.partitions:
+                continue
+            config = ConfigRecord(dict(record[self.configrecord_key]))
+            config["partition-id"] = self.partitions[nid]
+            config["num-partitions"] = len(self.partitions)
+            content = RecordDict({self.arrayrecord_key: record[self.arrayrecord_key], self.configrecord_key: config})
+            messages.append(Message(content=content, message_type=message_type, dst_node_id=nid))
+        return messages
 
     def _log_replies(self, kind: str, server_round: int, replies: list[Message]) -> None:
         for msg in replies:

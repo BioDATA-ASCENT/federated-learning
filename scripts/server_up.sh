@@ -4,8 +4,7 @@
 # nodes reach them through SSH tunnels (scripts/join_federation.sh).
 #
 #   bash scripts/server_up.sh            # start (no-op if already running)
-#   bash scripts/server_up.sh --local-node <partition-id> <num-partitions>
-#                                        # also run a node on the server itself
+#   bash scripts/server_up.sh --local-node   # also run a node on the server itself
 #   tmux attach -t fl                    # watch; Ctrl+B then a window number to switch
 #   tmux kill-session -t fl              # stop everything
 set -euo pipefail
@@ -31,11 +30,10 @@ else
 fi
 
 if [[ "${1:-}" == "--local-node" ]]; then
-  pid="${2:?partition-id}"; n="${3:?num-partitions}"
   tmux kill-window -t fl:node-server 2>/dev/null || true
   tmux new-window -t fl -n node-server \
-    "$ENV; flower-supernode --insecure --superlink 127.0.0.1:9092 --port 9095 --node-config 'partition-id=$pid num-partitions=$n' 2>&1 | tee -a $LOGS/node-server.log"
-  echo "Started a local node: partition-id=$pid num-partitions=$n"
+    "$ENV; flower-supernode --insecure --superlink 127.0.0.1:9092 --port 9095 2>&1 | tee -a $LOGS/node-server.log"
+  echo "Started a local node on the server."
 fi
 
 # flwr CLI connection named "aws", used by: flwr run apps/mnist_fedavg aws --stream

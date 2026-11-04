@@ -33,15 +33,13 @@ git checkout flower-deployment-demo
 make env                               # see quickstart.md. Installs torch; on Linux the CUDA build is about 6 GB
 ```
 
-**3. Join.** The lead gives you a partition ID.
+**3. Join.**
 
 ```bash
-bash scripts/join_federation.sh <partition-id> <num-partitions>
-# e.g. the third of four laptops:
-bash scripts/join_federation.sh 2 4
+bash scripts/join_federation.sh
 ```
 
-The script opens the tunnel, checks that MNIST is downloaded, and starts the node. Leave it running. When the line `SuperNode ID: ...` appears, you are connected. During a run you will see one line per round, like this:
+You don't need any IDs. The script opens the tunnel, checks that MNIST is downloaded, and starts the node. Leave it running. When the line `SuperNode ID: ...` appears, you are connected. When a run starts, the server tells your node which slice of the data to train on. During a run you will see one line per round, like this:
 
 ```
 [client 2] round 3: trained on 13500 samples (digits [0, 1, ..., 9]), epoch losses [0.33], 0.1s
@@ -52,13 +50,12 @@ Press Ctrl+C to leave. That also closes the tunnel.
 
 **4. Watch.** Open **http://localhost:8050**. The tunnel forwards the server's dashboard to your laptop. It shows global accuracy and loss, each client's training loss and validation accuracy, and the run config. It refreshes every 2 seconds.
 
-### Partition rules
+### How the data is split
 
-| Rule | Why |
-|---|---|
-| Every node uses the **same** `num-partitions` | Each node computes the same split of MNIST from the shared seed, then keeps its own slice |
-| Every node uses a **different** `partition-id`, from 0 to N−1 | Two nodes with the same ID train on identical data |
-| `num-partitions` = number of nodes in the run | Otherwise some of the data goes unused, which is harmless but wasted |
+When a run starts, the server takes the N nodes that are online, numbers them 0 to N−1, and sends each node its number and N with every message. Each node cuts MNIST into N slices from the shared seed and trains on its own slice. So the slices never overlap, and no data goes unused.
+
+- **Join before the run starts.** A node that connects during a run is left out until the next run, so the split stays fixed.
+- **Leaving during a run is fine.** That node's rounds count as failures, and the other nodes carry on.
 
 ## Run the server (lead)
 
@@ -68,7 +65,7 @@ The server is already set up in `~/federated-learning`, with the services in a t
 ssh user1@100.53.208.149
 cd ~/federated-learning
 bash scripts/server_up.sh                      # SuperLink + dashboard
-bash scripts/server_up.sh --local-node 1 2     # optional: the server also acts as a node (handy for a 2-node demo with one laptop)
+bash scripts/server_up.sh --local-node         # optional: the server also acts as a node (handy for a 2-node demo with one laptop)
 tmux attach -t fl                              # look around; Ctrl+B then D to detach
 ```
 
@@ -79,7 +76,7 @@ source .venv/bin/activate
 flwr run apps/mnist_fedavg aws --stream -c 'min-nodes=4 num-server-rounds=20'
 ```
 
-- `min-nodes` makes each round wait until that many nodes are connected.
+- `min-nodes` (default 2) makes the run wait until at least that many nodes are connected. Every node online at that moment takes part. Check who is online with `flwr supernode list aws`. The run log prints the partition assignment, for example `Assigned 3 partitions: node 1541… -> 0, ...`.
 - Everything in the `[tool.flwr.app.config]` section of [apps/mnist_fedavg/pyproject.toml](apps/mnist_fedavg/pyproject.toml) can be overridden with `-c`. Useful ones:
   - `non-iid=true`: each client gets only some digits. This is the interesting case for federated learning.
   - `local-epochs=5`: more local training between averaging rounds.
@@ -96,6 +93,9 @@ These are 10 rounds with 2 nodes (this laptop and the server) and the default co
 |---|---|---|---|
 | IID | 88.96% | 92.62% | 94.38% |
 | Non-IID (2 shards per client: one client got digits 4–9, the other 0–4) | 62.43% | 84.69% | 88.05% |
+| IID, 3 laptops (18,000 samples each) | 87.61% | 91.83% | 93.42% |
+
+The 3-laptop run is slightly lower per round because each client takes fewer SGD steps per round. More rounds, or `local-epochs=2`, closes the gap.
 
 The IID run matched a local simulation to four decimals, because the runs are deterministic given the seed.
 

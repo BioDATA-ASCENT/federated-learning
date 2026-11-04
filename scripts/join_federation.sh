@@ -1,27 +1,21 @@
 #!/usr/bin/env bash
 # Join the federation as a node (SuperNode).
 #
-#   bash scripts/join_federation.sh <partition-id> <num-partitions> [user@server]
+#   bash scripts/join_federation.sh [user@server]
 #
 # Opens an SSH tunnel to the server (SuperLink port and dashboard), then runs a
 # SuperNode in the foreground. Ctrl+C stops the node and closes the tunnel.
-# Each node needs a different partition-id; all nodes use the same num-partitions.
+# No IDs needed: at the start of each run the server numbers the online nodes
+# and tells each one which slice of the data to train on.
 set -euo pipefail
 
-PID_ARG="${1:-}"
-NPARTS="${2:-}"
-SERVER="${3:-${FL_SERVER:-user1@100.53.208.149}}"
+if [[ "${1:-}" =~ ^[0-9]+$ ]]; then
+  echo "Partition numbers are no longer needed: the server assigns them. Run: bash scripts/join_federation.sh" >&2
+  exit 1
+fi
+SERVER="${1:-${FL_SERVER:-user1@100.53.208.149}}"
 LINK_PORT="${FL_LINK_PORT:-9092}"       # SuperLink port on the server (and local end of the tunnel)
 DASH_PORT="${FL_DASH_PORT:-8050}"       # dashboard port on the server (and local end of the tunnel)
-
-if [[ -z "$PID_ARG" || -z "$NPARTS" ]]; then
-  echo "usage: bash scripts/join_federation.sh <partition-id> <num-partitions> [user@server]" >&2
-  exit 1
-fi
-if (( PID_ARG < 0 || PID_ARG >= NPARTS )); then
-  echo "partition-id must be in 0..$((NPARTS - 1))" >&2
-  exit 1
-fi
 
 cd "$(dirname "$0")/.."
 if [[ ! -x .venv/bin/flower-supernode ]]; then
@@ -60,6 +54,5 @@ done
   && echo "MNIST ready in ~/.cache/fedbio/mnist"
 
 echo "Dashboard: http://localhost:$DASH_PORT"
-echo "Starting SuperNode: partition-id=$PID_ARG num-partitions=$NPARTS  (Ctrl+C to leave)"
-flower-supernode --insecure --superlink "127.0.0.1:$LINK_PORT" \
-  --node-config "partition-id=$PID_ARG num-partitions=$NPARTS"
+echo "Starting SuperNode. The server assigns this node's data slice when a run starts.  (Ctrl+C to leave)"
+flower-supernode --insecure --superlink "127.0.0.1:$LINK_PORT"
