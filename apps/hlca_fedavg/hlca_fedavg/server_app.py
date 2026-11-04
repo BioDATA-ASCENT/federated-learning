@@ -133,23 +133,24 @@ class LoggingFedAvg(FedAvg):
         replies = list(replies)
         self._log("client_eval", server_round, replies)
         points = []
-        for msg in replies:
-            if msg.has_error():
-                continue
-            metrics = next(iter(msg.content.metric_records.values()))
-            embeddings, y_true, y_pred = msg.content[
-                "visualization"
-            ].to_numpy_ndarrays()
-            points.append(
-                {
-                    "site": f"client {metrics['partition-id']}",
-                    "source": "site",
-                    "embeddings": embeddings,
-                    "y_true": y_true,
-                    "y_pred": y_pred,
-                }
-            )
-        self.site_visualizations[server_round] = points
+        if server_round > 0 and server_round % 5 == 0:
+            for msg in replies:
+                if msg.has_error():
+                    continue
+                metrics = next(iter(msg.content.metric_records.values()))
+                embeddings, y_true, y_pred = msg.content[
+                    "visualization"
+                ].to_numpy_ndarrays()
+                points.append(
+                    {
+                        "site": f"client {metrics['partition-id']}",
+                        "source": "site",
+                        "embeddings": embeddings,
+                        "y_true": y_true,
+                        "y_pred": y_pred,
+                    }
+                )
+            self.site_visualizations[server_round] = points
         agg = super().aggregate_evaluate(server_round, replies)
         if agg is not None:
             self.logger.write("federated_eval", round=server_round, **dict(agg))
@@ -265,11 +266,12 @@ def main(grid: Grid, context: Context) -> None:
     def central_eval(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         model = build_model(cfg)
         model.load_state_dict(arrays.to_torch_state_dict())
+        capture_umap = server_round > 0 and server_round % 5 == 0
         details = evaluate_detailed(
             model,
             evaluation_loader,
             len(LABELS),
-            max_embedding_cells=embedding_sample,
+            max_embedding_cells=embedding_sample if capture_umap else 0,
             seed=int(cfg["seed"]) + server_round,
         )
         n = int(details.confusion.sum())
@@ -291,68 +293,74 @@ def main(grid: Grid, context: Context) -> None:
             scope="global",
             confusion=details.confusion.ravel().tolist(),
         )
-
-        visualizations = list(strategy.site_visualizations.get(server_round, []))
         for group_id, confusion in details.group_confusions.items():
-            dataset_name = evaluation_datasets[group_id]
             logger.write(
                 "external_confusion",
                 round=server_round,
-                scope=dataset_name,
+                scope=evaluation_datasets[group_id],
                 confusion=confusion.ravel().tolist(),
             )
-            if details.groups is None:
-                continue
-            mask = details.groups == group_id
-            visualizations.append(
-                {
-                    "site": dataset_name,
-                    "source": "external",
-                    "embeddings": details.embeddings[mask],
-                    "y_true": details.y_true[mask],
-                    "y_pred": details.y_pred[mask],
-                }
-            )
 
-        embedding_parts = [
-            item["embeddings"] for item in visualizations if len(item["embeddings"])
-        ]
-        embeddings = (
-            np.concatenate(embedding_parts, axis=0)
-            if embedding_parts
-            else np.empty((0, int(cfg["hidden-size"])), dtype=np.float32)
-        )
-        if len(embeddings) >= 3:
-            coordinates = UMAP(
-                n_components=2,
-                n_neighbors=min(15, len(embeddings) - 1),
-                min_dist=0.1,
-                metric="euclidean",
-                random_state=int(cfg["seed"]),
-                n_jobs=1,
-            ).fit_transform(embeddings)
-            points = []
-            offset = 0
-            for item in visualizations:
-                count = len(item["embeddings"])
-                for i, (x, y) in enumerate(coordinates[offset : offset + count]):
-                    true = int(item["y_true"][i])
-                    predicted = int(item["y_pred"][i])
-                    points.append(
-                        {
-                            "x": float(x),
-                            "y": float(y),
-                            "label": true,
-                            "predicted": predicted,
-                            "correct": true == predicted,
-                            "source": item["source"],
-                            "site": item["site"],
-                        }
-                    )
-                offset += count
-            logger.write_umap(server_round, points)
-        else:
-            logger.write("umap_unavailable", round=server_round, points=len(embeddings))
+        if capture_umap:
+            visualizations = list(strategy.site_visualizations.get(server_round, []))
+            for group_id in details.group_confusions:
+                if details.groups is None:
+                    continue
+                dataset_name = evaluation_datasets[group_id]
+                mask = details.groups == group_id
+                visualizations.append(
+                    {
+                        "site": dataset_name,
+                        "source": "external",
+                        "embeddings": details.embeddings[mask],
+                        "y_true": details.y_true[mask],
+                        "y_pred": details.y_pred[mask],
+                    }
+                )
+
+            embedding_parts = [
+                item["embeddings"]
+                for item in visualizations
+                if len(item["embeddings"])
+            ]
+            embeddings = (
+                np.concatenate(embedding_parts, axis=0)
+                if embedding_parts
+                else np.empty((0, int(cfg["hidden-size"])), dtype=np.float32)
+            )
+            if len(embeddings) >= 3:
+                coordinates = UMAP(
+                    n_components=2,
+                    n_neighbors=min(15, len(embeddings) - 1),
+                    min_dist=0.1,
+                    metric="euclidean",
+                    random_state=int(cfg["seed"]),
+                    n_jobs=1,
+                ).fit_transform(embeddings)
+                points = []
+                offset = 0
+                for item in visualizations:
+                    count = len(item["embeddings"])
+                    for i, (x, y) in enumerate(coordinates[offset : offset + count]):
+                        true = int(item["y_true"][i])
+                        predicted = int(item["y_pred"][i])
+                        points.append(
+                            {
+                                "x": float(x),
+                                "y": float(y),
+                                "label": true,
+                                "predicted": predicted,
+                                "correct": true == predicted,
+                                "source": item["source"],
+                                "site": item["site"],
+                            }
+                        )
+                    offset += count
+                logger.write_umap(server_round, points)
+            else:
+                logger.write(
+                    "umap_unavailable", round=server_round, points=len(embeddings)
+                )
 
         return MetricRecord(
             {
