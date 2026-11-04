@@ -8,15 +8,15 @@ Check completed preparation and chosen milestones. Add the date and your initial
 - [x] 2. Environment: `uv sync` works on a clean laptop. `python -c "import flwr"` prints `1.42.0`. ([quickstart.md](quickstart.md)) 2026-11-03 MV
 - [x] 3. Pancreas data downloaded on every laptop. 2026-11-03 MV (lead's laptop. 16,382 cells, 19,093 genes, 9 techs.)
 - [x] 4. HLCA core downloaded on the lead's laptop. 2026-11-03 MV (5.87 GB, 584,944 cells, 27,402 genes, 14 datasets.)
-- [ ] 5. `make_partitions.py` writes one h5ad per `tech` value from the pancreas file.
-- [ ] 6. `fedbio/data.py`: `load_client("pancreas", k)` returns `(X_train, y_train, X_test, y_test)` with a fixed gene order and the full label set.
-- [ ] 7. `fedbio/model.py`: `fit`, `get_weights`, `set_weights`, `evaluate`, `attribute` on logistic regression.
-- [ ] 8. `fedbio/fedavg.py`: local, FedAvg, and pooled on the pancreas data. Writes `results/pancreas_table.csv`.
-- [ ] 9. `fedbio_app/`: `flwr run .` on the pancreas data matches `fedavg.py` within one point of macro F1.
-- [ ] 10. `plot_gain.py` renders the per-client gain figure from `results/pancreas_table.csv`.
+- [ ] 5. Partitions: one h5ad per `tech` value from the pancreas file.
+- [ ] 6. Client loader: returns `(X_train, y_train, X_test, y_test)` for one pancreas client, with a fixed gene order and the full label set.
+- [ ] 7. Model: fit, get weights, set weights, evaluate, and attribute, on logistic regression.
+- [ ] 8. FedAvg loop: local, FedAvg, and pooled on the pancreas data. Writes the result table.
+- [ ] 9. Flower app: a simulation run on the pancreas data matches the FedAvg loop within one point of macro F1.
+- [ ] 10. The per-client gain figure renders from the result table.
 - [ ] 11. Stage 3 on pancreas: top 10 genes per cell type, federated and per client.
-- [ ] 12. `make test` runs items 5 to 11 end to end in under five minutes.
-- [ ] 13. `make_partitions.py` writes `data/hlca_client_K.h5ad` for the 5 or 6 largest HLCA datasets. Files shared with the team.
+- [ ] 12. One command runs items 5 to 11 end to end in under five minutes.
+- [ ] 13. Partitions for the 5 or 6 largest HLCA datasets, one file per client. Files shared with the team.
 
 ## Hackathon checkpoints
 

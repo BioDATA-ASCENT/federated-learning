@@ -43,13 +43,13 @@ There is no download step. The loader fetches each study on first use and caches
 - Mutations: `POST /api/molecular-profiles/{id}_mutations/mutations/fetch` with the sample list and Entrez gene IDs
 - CNA: `POST /api/molecular-profiles/{id}_cna/molecular-data/fetch` (profile suffix is `_gistic` for TCGA)
 
-The loader lives in `fedbio/cbio.py` and is shared with Track C.
+Tracks B and C can share one loader.
 
 ## Contracts for this track
 
 | Contract | How Track B meets it |
 |---|---|
-| Feature | Gene intersection computed once from the three panel definitions and fixed in `fedbio/cbio.py`. Two columns per gene, fixed order. |
+| Feature | Gene intersection computed once from the three panel definitions and fixed in the loader. Two columns per gene, fixed order. |
 | Label | Cancer types present in at least two clients. Fixed list server-side. |
 | Preprocessing | Binarization thresholds (CNA ±2) fixed in the loader. No scaling needed for binary features. |
 | Model | Same as Track A. |
@@ -60,8 +60,8 @@ Choose milestones to suit your question; these are starting points for explorati
 
 | ID | Task | Done when |
 |---|---|---|
-| Prototype | cBioPortal loader | `load_client("tissue", k)` returns data for 2 clients |
-| Explore | All three stages | `results/B_table.csv` with local, FedAvg, pooled columns |
+| Prototype | cBioPortal loader | The loader returns data for 2 clients |
+| Explore | All three stages | A result table with local, FedAvg, and pooled columns |
 
 ## References
 
