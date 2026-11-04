@@ -63,6 +63,3 @@ ax.legend(frameon=False, loc="center left", bbox_to_anchor=(1, 0.5))
 ax.set_title("Cell type mix per client", fontsize=14, fontweight="bold", color="#1F3A5F", loc="left")
 ax.figure.savefig(folder / "cell_type_mix_per_client.png", dpi=300, bbox_inches="tight", facecolor="white")
 print(f"Saved {folder / 'cell_type_mix_per_client.png'}")
- 
-by_type.loc["Total"] = by_type.sum()
-save_table(by_type.rename_axis("Cell type").reset_index(), "Cells per cell type in each group", "table_cell_types.png")
