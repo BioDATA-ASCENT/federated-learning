@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mnist-fedavg"
+version = "0.1.0"
+description = "Toy FedAvg on MNIST (port of naderAsadi/FedAvg to the Flower Message API)"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "flwr[simulation]==1.42.0",
+    "torch",
+    "torchvision",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["mnist_fedavg"]
+
+[tool.flwr.app]
+publisher = "biodata-ascent"
+
+[tool.flwr.app.components]
+serverapp = "mnist_fedavg.server_app:app"
+clientapp = "mnist_fedavg.client_app:app"
+
+# Override any of these at submit time, e.g.
+#   flwr run apps/mnist_fedavg <connection> --stream -c 'num-server-rounds=30 non-iid=true'
+[tool.flwr.app.config]
+num-server-rounds = 20
+local-epochs = 1          # E in the FedAvg paper
+batch-size = 128          # B (hardcoded to 128 in the original script)
+lr = 0.01
+momentum = 0.5
+non-iid = false           # false: IID split. true: McMahan shard split (each client sees few digits)
+shards-per-client = 2     # used only when non-iid = true
+val-fraction = 0.1        # share of each client's partition held out for local evaluation
+min-nodes = 2             # wait for this many SuperNodes before each round
+response-timeout-seconds = 120  # stop waiting for each train/evaluate phase after this long
+seed = 42                 # every node must use the same seed so partitions do not overlap
+data-root = "~/.cache/fedbio/mnist"
+out-dir = "~/fedbio-runs/mnist_fedavg"
