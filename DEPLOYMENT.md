@@ -2,6 +2,8 @@
 
 One server runs the Flower **SuperLink** (the coordinator). Each laptop runs a **SuperNode** (a client) and trains on its own data. Only model weights travel between them.
 
+For a non-technical overview to show a new partner site (agreements, data preparation, what leaves the site), see [SITE_ONBOARDING.md](SITE_ONBOARDING.md).
+
 ```
  laptop A (node) ──ssh tunnel──┐
  laptop B (node) ──ssh tunnel──┼──>  server $FL_HOST
