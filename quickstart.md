@@ -1,6 +1,6 @@
 # Quickstart
 
-Three steps: install the environment, download the data, run the smoke test. All data are real and public. Nothing here is synthetic.
+Two steps: install the environment and download the data. All data are real and public. Nothing here is synthetic.
 
 ## 1. Environment
 
@@ -50,7 +50,7 @@ The script resumes partial downloads, skips files that exist, checks the md5 of 
 
 ### Pancreas (required, every laptop)
 
-The scIB human pancreas benchmark. 16,382 cells, 19,093 genes, nine protocols in `obs["tech"]`, cell types in `obs["celltype"]`, raw counts in `layers["counts"]`. One client per `tech` value. This is the smoke test dataset. The md5 of the file is `5aa155652b998c90395a0c9bd731b4b3`.
+The scIB human pancreas benchmark. 16,382 cells, 19,093 genes, nine protocols in `obs["tech"]`, cell types in `obs["celltype"]`, raw counts in `layers["counts"]`. One client per `tech` value. The md5 of the file is `5aa155652b998c90395a0c9bd731b4b3`.
 
 Use the host `ndownloader.figshare.com`. The address `https://figshare.com/ndownloader/files/24539828` answers HTTP 202 with an empty body, and `curl --fail` accepts it. That writes a file of zero bytes.
 
@@ -60,7 +60,7 @@ curl -L -o data/raw/pancreas.h5ad https://ndownloader.figshare.com/files/2453982
 
 ### Human Lung Cell Atlas core (Track A, lead's laptop only)
 
-584,944 cells, 27,402 genes, 14 source datasets in `obs["dataset"]`, labels in `obs["ann_level_3"]`. The h5ad file is 5.87 GB. One person downloads it. `make_partitions.py` then writes one small file per client to `data/`, and those files go to the team.
+584,944 cells, 27,402 genes, 14 source datasets in `obs["dataset"]`, labels in `obs["ann_level_3"]`. The h5ad file is 5.87 GB. One person downloads it. That person then writes one small file per client to `data/` and shares those files with the team.
 
 ```bash
 curl -L -o data/raw/hlca_core.h5ad https://datasets.cellxgene.cziscience.com/688185ad-11c2-4172-a53a-f4f1f4076860.h5ad
@@ -77,23 +77,7 @@ Pick the line with `584944` cells.
 
 ### cBioPortal (Tracks B and C, no download step)
 
-`fedbio/cbio.py` reads mutation, copy number, and clinical data from the cBioPortal web API. No login is needed. The loader caches each study in `data/cbio/<study_id>/` on first use. Study IDs are listed in the track files.
-
-## 3. Smoke test
-
-```bash
-make test
-```
-
-This runs the full pipeline on the pancreas data: partitions, local models, FedAvg, pooled model, the result table, the gain plot, and the top genes per cell type. Target run time: under five minutes on a laptop. Outputs go to `results/`.
-
-Then run the Flower app in simulation:
-
-```bash
-flwr run .
-```
-
-The Flower numbers must match `make test` within one point of macro F1.
+The cBioPortal web API serves mutation, copy number, and clinical data. No login is needed, so there is no download step. Study IDs are listed in the track files.
 
 ## Rules
 
