@@ -2,7 +2,7 @@
 
 Train one model across many labs or hospitals without moving the data. Each client fits the model on its own data and sends only the weights to the server. The server averages the weights and sends them back. Hackathon project from BioDATA ASCENT at CSHL, Nov 2026. Team of six.
 
-Start with [quickstart.md](quickstart.md). It sets up the environment and downloads the data. [Progress.md](Progress.md) is the checklist. [DEPLOYMENT.md](DEPLOYMENT.md) covers running the federation across machines: one server, laptops as nodes.
+Start with [quickstart.md](quickstart.md). It sets up the environment and downloads the data. [Progress.md](Progress.md) is the checklist. [DEPLOYMENT.md](DEPLOYMENT.md) covers running the federation across machines: one server, laptops as nodes. [SITE_ONBOARDING.md](SITE_ONBOARDING.md) is the non-technical guide to show a new partner site, such as a hospital or lab, when it joins.
 
 ### Federation server
 
