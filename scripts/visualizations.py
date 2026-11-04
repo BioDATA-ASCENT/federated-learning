@@ -45,3 +45,24 @@ save_table(pd.DataFrame(rows, columns=["Group", "Source datasets", "Cells", "Don
 
 by_type.loc["Total"] = by_type.sum()
 save_table(by_type.rename_axis("Cell type").reset_index(), "Cells per cell type in each group", "table_cell_types.png")
+
+# Cell type mix per client. Each cell type keeps one color, in the fixed order of the label list.
+colors = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948", "#8a8984"]
+clients = by_type.filter(like="Client").loc[contract["labels"]]
+mix = (clients / clients.sum() * 100).T
+mix.index = [f"{name} ({clients[name].sum():,} cells)" for name in clients]
+ax = mix.plot.barh(stacked=True, figsize=(10, 4.5), width=0.75, color=colors, edgecolor="white", linewidth=1.5)
+for bars, color in zip(ax.containers, colors):
+    shares = [f"{share:.0f}%" if share >= 12 else "" for share in bars.datavalues]  # label only the large segments
+    ax.bar_label(bars, labels=shares, label_type="center", fontsize=9, color="white" if color in ("#2a78d6", "#008300", "#6250d6") else "black")
+ax.invert_yaxis()
+ax.set(xlim=(0, 100), xlabel="Share of each client's cells (%)", ylabel="")
+ax.spines[["top", "right", "left"]].set_visible(False)
+ax.tick_params(left=False)
+ax.legend(frameon=False, loc="center left", bbox_to_anchor=(1, 0.5))
+ax.set_title("Cell type mix per client", fontsize=14, fontweight="bold", color="#1F3A5F", loc="left")
+ax.figure.savefig(folder / "cell_type_mix_per_client.png", dpi=300, bbox_inches="tight", facecolor="white")
+print(f"Saved {folder / 'cell_type_mix_per_client.png'}")
+ 
+by_type.loc["Total"] = by_type.sum()
+save_table(by_type.rename_axis("Cell type").reset_index(), "Cells per cell type in each group", "table_cell_types.png")
