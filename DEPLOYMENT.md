@@ -4,7 +4,7 @@ One server runs the Flower **SuperLink** (the coordinator). Each laptop runs a *
 
 ```
  laptop A (node) ──ssh tunnel──┐
- laptop B (node) ──ssh tunnel──┼──>  server 100.53.208.149
+ laptop B (node) ──ssh tunnel──┼──>  server $FL_HOST
  laptop C (node) ──ssh tunnel──┘     SuperLink  127.0.0.1:9092
                                      dashboard  127.0.0.1:8050
 ```
@@ -17,30 +17,28 @@ The demo app is [apps/mnist_fedavg](apps/mnist_fedavg). It is a toy FedAvg on MN
 
 You need macOS or Linux (on Windows, use WSL), and SSH access to the server. Ask the lead for the login.
 
-**1. Set up SSH key login.** You do this once. The join script can't type a password. Use your own login on the server (the lead gives it to you). Set it once in your shell:
+**1. Set up SSH key login.** You do this once. The join script can't type a password. Set your login and the server address. The values are in the README's [Federation server](README.md#federation-server) section, or ask the lead:
 
 ```bash
-export FL_USER=user3                     # your login; the scripts default to user1
-ssh-copy-id $FL_USER@100.53.208.149      # enter the password once
-ssh $FL_USER@100.53.208.149 'echo ok'    # must print "ok" without asking for a password
+export FL_USER=<your-login> FL_HOST=<server-address>
+ssh-copy-id $FL_USER@$FL_HOST            # enter the password once
+ssh $FL_USER@$FL_HOST 'echo ok'          # must print "ok" without asking for a password
 ```
 
-To keep the setting, add `export FL_USER=user3` to `~/.zshrc` or `~/.bashrc`. The join script reads `FL_USER`. `FL_HOST` changes the server address (default `100.53.208.149`).
+To keep the settings, add the `export` line to `~/.zshrc` or `~/.bashrc`. The join script reads `FL_USER` and `FL_HOST`, and stops with a reminder if either one is missing.
 
 **2. Get the code and the environment.**
 
 ```bash
-git clone https://github.com/BioDATA-ASCENT/federated-learning.git   # or: git fetch && git checkout flower-deployment-demo
+git clone https://github.com/BioDATA-ASCENT/federated-learning.git   # or, in an existing clone: git pull
 cd federated-learning
-git checkout flower-deployment-demo
 make env                               # see quickstart.md. Installs torch; on Linux the CUDA build is about 6 GB
 ```
 
 **3. Join.**
 
 ```bash
-bash scripts/join_federation.sh                   # uses $FL_USER from step 1
-# or, without the export:  FL_USER=user3 bash scripts/join_federation.sh
+bash scripts/join_federation.sh                   # uses FL_USER and FL_HOST from step 1
 ```
 
 You don't need any IDs. The script opens the tunnel, checks that MNIST is downloaded, and starts the node. Leave it running. When the line `SuperNode ID: ...` appears, you are connected. When a run starts, the server tells your node which slice of the data to train on. During a run you will see one line per round, like this:
@@ -66,7 +64,7 @@ When a run starts, the server takes the N nodes that are online, numbers them 0 
 The server is already set up in `~/federated-learning`, with the services in a tmux session called `fl`. To start it from scratch:
 
 ```bash
-ssh user1@100.53.208.149
+ssh $FL_USER@$FL_HOST                          # the account that runs the server (README.md)
 cd ~/federated-learning
 bash scripts/server_up.sh                      # SuperLink + dashboard
 bash scripts/server_up.sh --local-node         # optional: the server also acts as a node (handy for a 2-node demo with one laptop)
