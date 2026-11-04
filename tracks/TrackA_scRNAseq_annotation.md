@@ -17,17 +17,17 @@ Choose one question, start with a small pancreas prototype, and expand toward HL
 |---|---|
 | Task | Cell type classification |
 | Data | Human Lung Cell Atlas core (Sikkema et al. 2023), raw counts, 2000 highly variable genes |
-| Clients | `dataset` column. 14 contributing labs. Use the 5 or 6 largest for the demo, all 14 for the paper |
-| Label | `ann_level_3`. Tens of classes. `ann_finest_level` (61 classes) for the paper |
-| Model | Logistic regression |
+| Clients | Six, one per lab group. The two largest labs train the initial model and two more are held out for the deployment demo |
+| Label | `ann_level_2`, nine classes. `LABELS` in `apps/hlca_fedavg/hlca_fedavg/task.py` is the contract |
+| Model | MLP, 2000 inputs to 256 hidden units to nine logits |
 | Metric | Macro F1 |
 | Stage 3 output | Marker genes per cell type, federated versus per client |
 | Smoke test data | scIB human pancreas, one client per `tech` value |
-| Status | Parallel track choice |
+| Status | Active. Code in `apps/hlca_fedavg/` |
 
 ## Data
 
-Two real datasets. Write the loader once and run it on both. A track name selects the dataset.
+The HLCA core holds every client's cells in one file, labeled by `obs["dataset"]`. The partitions are cut from it by hand, outside the app.
 
 ### Pancreas (smoke test)
 
@@ -39,12 +39,14 @@ The scIB human pancreas benchmark: 16,382 cells, 19,093 genes, nine protocols (c
 
 ### Partitions
 
-Partition each dataset once. Write one file per client into `data/`, a few MB each:
+Somebody cuts the partitions by hand, outside the app. Each node then holds its own copy in `~/fedbio-data/hlca/`. What the app needs:
 
-1. Read the source file. For HLCA, keep the 5 or 6 largest `dataset` values. For pancreas, keep all nine `tech` values.
-2. Compute HVGs on the union with `batch_key` set to the client column, so the gene set is shared. This is the one preprocessing step that runs on pooled data, and it is declared as such.
-3. Subset to the 2000 HVGs in a fixed order.
-4. Write one h5ad per client with raw counts and the client and label columns.
+1. Six client files, each one lab group, named `client_0.h5ad` to `client_5.h5ad`.
+2. `genes.txt`, 2000 highly variable genes computed from one partition alone, one symbol per line. No step runs on pooled data.
+3. Every client file subset to those genes, in that order, carrying raw counts.
+4. `obs["ann_level_2"]` for the label and `obs["donor_id"]` for the split.
+
+The cells of the two largest labs go to the initial model and two more labs are held out for the deployment demo, so the six clients hold the remaining ten `dataset` values, 253,208 cells in nine classes.
 
 ## What scFed gives us and what it does not
 
@@ -52,20 +54,20 @@ scFed is a custom socket-based framework, not Flower, so none of its FL code tra
 
 1. The recipe. Drop all-zero genes, CPM normalize, log2(x+1), min-max scale per client. Its linear SVM is scikit-learn `SGDClassifier` with hinge loss, aggregated by a sample-weighted average of `coef_` and `intercept_`. Our logistic regression is the same aggregation with log loss, so Stage 1 reproduces scFed's linear model in Flower.
 2. The baseline numbers. scFed reports F1 for the linear model and ACTINN on pancreas with one dataset held out per run. We cite them. We do not rerun them.
-3. The cross-dataset design. One client per source dataset, shared cell types only. HLCA replaces pancreas, `ann_level_3` replaces the four pancreas types.
+3. The cross-dataset design. One client per source lab, shared cell types only.
 
 ## Contracts for this track
 
 | Contract | How Track A meets it |
 |---|---|
-| Feature | The partition step fixes 2000 genes in one order. Each client asserts the count and the order when it loads its file. |
-| Label | The label list is the union of the label column across the chosen clients, fixed server-side. A client missing a class still returns a weight matrix of shape (n_labels, 2000). |
-| Preprocessing | HVG selection on the union, once, declared. CPM, log, and scaling per client. Normalization statistics differ by client. That is the non-IID feature shift FedAvg must absorb. |
-| Model | Serialize the weights as `[coef_, intercept_]`. Shapes (n_labels, 2000) and (n_labels,). Stage 3 attribution is `coef_` per class. |
+| Feature | `genes.txt` fixes 2000 genes in one order, computed from one partition. `load_client` asserts the count and the order, and raises on a mismatch. |
+| Label | `LABELS` holds nine `ann_level_2` classes in a fixed order. Five of them are absent from at least one client, and a client missing a class still returns the full weight shape. |
+| Preprocessing | No step runs on pooled data, because the gene list comes from one partition. `normalize_total` to 1e4 and `log1p` run per client, so the normalization statistics differ by client. That is the feature shift FedAvg must absorb. |
+| Model | `build_model` is the one place that fixes the shapes, so every node agrees. `ArrayRecord(model.state_dict())` carries the four tensors. The MLP has no per-gene coefficient, so Stage 3 needs gradient attribution. |
 
 ## Flower setup
 
-The client reads `partition-id` from the node config, loads that client's data, and fits for E epochs from the received weights in an `@app.train()` handler. The server calls `Grid.send_and_receive` per round and averages by sample count. One app can run in simulation and on six laptops with no code change.
+`apps/hlca_fedavg/` holds the app. See its README. The client reads `partition-id` from the node config, loads that client's partition, and fits for E epochs from the received weights in an `@app.train()` handler. The server runs `FedAvg` and averages by sample count. `LoggingFedAvg` records every client reply before aggregating, so the aggregation stays visible. The same app runs in simulation and on six laptops.
 
 ## Possible prototype milestones
 
@@ -73,7 +75,7 @@ Choose milestones to suit your question; these are starting points for explorati
 
 | ID | Task | Done when |
 |---|---|---|
-| Prototype | HLCA partitions on every laptop | A laptop loads one HLCA client in under 10 s |
+| Prototype | HLCA partitions on every laptop | `flwr run apps/hlca_fedavg` completes a round on every laptop |
 | Explore | Stage 3 | Top 10 genes per cell type, federated and per client, one table |
 
 ## References

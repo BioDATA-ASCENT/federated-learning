@@ -56,7 +56,7 @@ All data in this project are real and public. The repository holds no synthetic 
 | Dataset | Used for | Clients | Size | Source |
 |---|---|---|---|---|
 | Human pancreas, 9 technologies (scIB benchmark) | Smoke test and the first end-to-end run | One per `tech` value | 16,382 cells, 19,093 genes | [figshare](https://ndownloader.figshare.com/files/24539828) |
-| Human Lung Cell Atlas core (Sikkema et al. 2023) | Track A demo | One per `dataset` value, 14 labs | 584,944 cells, 27,402 genes, 5.87 GB h5ad | [CELLxGENE](https://cellxgene.cziscience.com/collections/6f6d381a-7701-4781-935c-db10d30de293) |
+| Human Lung Cell Atlas core (Sikkema et al. 2023) | Track A, the work | Six, one per lab group | 584,944 cells, 27,402 genes, 5.87 GB h5ad | [CELLxGENE](https://cellxgene.cziscience.com/collections/6f6d381a-7701-4781-935c-db10d30de293) |
 | cBioPortal studies | Tracks B and C | One per study | Hundreds to thousands of samples per study, fetched by API | [cBioPortal](https://www.cbioportal.org) |
 
 The pancreas data are small and come from nine different protocols. That is the same multi-lab structure as the HLCA, at one thirty-fifth the cell count. Build and test on it first. scFed (Wang et al. 2024) also benchmarked on pancreas data, so its reported numbers are a reference point.
@@ -69,13 +69,13 @@ The pancreas data are small and come from nine different protocols. That is the 
 | B | Cancer tissue of origin from panel mutations, one client per institution | [tracks/TrackB_tissue_of_origin.md](tracks/TrackB_tissue_of_origin.md) |
 | C | Survival on immune checkpoint inhibitors, one client per hospital cohort | [tracks/TrackC_ici_survival.md](tracks/TrackC_ici_survival.md) |
 
-The tracks are parallel choices. Work alone or in pairs on the problem that interests you, and share infrastructure where useful.
+Track A is the work. The team chose cell type classification on the HLCA, with nine `ann_level_2` classes and six clients. Tracks B and C stay here as written, unstarted.
 
 ## Before the hackathon
 
-The organizers ask for a full prototype by noon, so a pipeline must run end to end on the pancreas data before the day starts. It gives everyone a shared walkthrough and a fallback demo. [Progress.md](Progress.md) lists the parts to build and the condition that closes each one.
+The organizers ask for a full prototype by noon, so a pipeline must run end to end before the day starts. [Progress.md](Progress.md) lists the parts and the condition that closes each one.
 
-The repository now holds the environment, the download script, and these docs. No pipeline code exists yet.
+The repository holds the environment, the download script, these docs, and two Flower apps. [apps/mnist_fedavg](apps/mnist_fedavg) is the toy FedAvg app that proves the deployment path. [apps/hlca_fedavg](apps/hlca_fedavg) is Track A: it runs five rounds over six clients in simulation, and the partitions it reads are cut by hand, outside the app.
 
 Framework: Flower, `flwr[simulation]==1.42.0`, Python 3.11 or 3.12, Message API only (`ServerApp`, `ClientApp`, `Grid`, `@app.train()`). Tutorials that use `NumPyClient`, `server_fn`, or `start_simulation` are the old API. Do not follow them.
 
