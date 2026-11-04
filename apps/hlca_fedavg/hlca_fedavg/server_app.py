@@ -21,12 +21,20 @@ from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, 
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg
 from flwr.serverapp.strategy.strategy_utils import aggregate_metricrecords
+from umap import UMAP
 
-from hlca_fedavg.task import LABELS, build_model, macro_f1
+from hlca_fedavg.task import (
+    LABELS,
+    build_model,
+    evaluate_detailed,
+    load_evaluation,
+    macro_f1,
+)
 
 app = ServerApp()
 
 COUNT_KEYS = ("tp", "fp", "fn")
+CONFUSION_KEY = "confusion"
 
 
 class JsonlLogger:
@@ -42,6 +50,12 @@ class JsonlLogger:
         rec = {"type": kind, "t": round(time.time() - self.t0, 2), **fields}
         with self.path.open("a") as f:
             f.write(json.dumps(rec) + "\n")
+
+    def write_umap(self, server_round: int, points: list[dict]) -> None:
+        path = self.dir / "umap"
+        path.mkdir(exist_ok=True)
+        with (path / f"round-{server_round:04d}.json").open("w") as f:
+            json.dump({"round": server_round, "points": points}, f)
 
 
 def _drop_partition_id(contents: list[RecordDict], weighting_key: str) -> MetricRecord:
@@ -59,16 +73,24 @@ def _federated_macro_f1(contents: list[RecordDict], weighting_key: str) -> Metri
     """
     n_classes = len(LABELS)
     totals = {k: np.zeros(n_classes, dtype=np.int64) for k in COUNT_KEYS}
+    confusion = np.zeros((n_classes, n_classes), dtype=np.int64)
     for content in contents:
         for record in content.metric_records.values():
             for key in COUNT_KEYS:
                 totals[key] += np.asarray(record[key], dtype=np.int64)
+            confusion += np.asarray(record[CONFUSION_KEY], dtype=np.int64).reshape(
+                n_classes, n_classes
+            )
 
     scalars = [
         RecordDict(
             {
                 name: MetricRecord(
-                    {k: v for k, v in record.items() if k not in COUNT_KEYS}
+                    {
+                        k: v
+                        for k, v in record.items()
+                        if k not in (*COUNT_KEYS, CONFUSION_KEY)
+                    }
                 )
             }
         )
@@ -79,6 +101,7 @@ def _federated_macro_f1(contents: list[RecordDict], weighting_key: str) -> Metri
     agg["macro_f1"] = macro_f1(totals["tp"], totals["fp"], totals["fn"])
     for key in COUNT_KEYS:
         agg[key] = totals[key].tolist()
+    agg[CONFUSION_KEY] = confusion.ravel().tolist()
     return agg
 
 
@@ -88,6 +111,7 @@ class LoggingFedAvg(FedAvg):
     def __init__(self, logger: JsonlLogger, **kwargs):
         super().__init__(**kwargs)
         self.logger = logger
+        self.site_visualizations: dict[int, list[dict]] = {}
 
     def _log(self, kind: str, server_round: int, replies: list[Message]) -> None:
         for msg in replies:
@@ -106,6 +130,24 @@ class LoggingFedAvg(FedAvg):
     def aggregate_evaluate(self, server_round: int, replies: Iterable[Message]):
         replies = list(replies)
         self._log("client_eval", server_round, replies)
+        points = []
+        for msg in replies:
+            if msg.has_error():
+                continue
+            metrics = next(iter(msg.content.metric_records.values()))
+            embeddings, y_true, y_pred = msg.content[
+                "visualization"
+            ].to_numpy_ndarrays()
+            points.append(
+                {
+                    "site": f"client {metrics['partition-id']}",
+                    "source": "site",
+                    "embeddings": embeddings,
+                    "y_true": y_true,
+                    "y_pred": y_pred,
+                }
+            )
+        self.site_visualizations[server_round] = points
         agg = super().aggregate_evaluate(server_round, replies)
         if agg is not None:
             self.logger.write("federated_eval", round=server_round, **dict(agg))
@@ -135,9 +177,16 @@ def main(grid: Grid, context: Context) -> None:
     cfg = dict(context.run_config)
     logger = JsonlLogger(str(cfg["out-dir"]), cfg)
     print(f"Writing metrics to {logger.path}", flush=True)
+    logger.write("labels", labels=list(LABELS))
 
     torch.manual_seed(int(cfg["seed"]))
     min_nodes = int(cfg["min-nodes"])
+    embedding_sample = int(cfg["umap-sample-per-site"])
+    evaluation_loader, evaluation_labels, evaluation_datasets = load_evaluation(
+        cfg["evaluation-file"], cfg
+    )
+    if evaluation_labels != list(LABELS):
+        raise ValueError("The evaluation partition label contract does not match the app.")
     strategy = LoggingFedAvg(
         logger,
         min_train_nodes=min_nodes,
@@ -146,11 +195,114 @@ def main(grid: Grid, context: Context) -> None:
         train_metrics_aggr_fn=_drop_partition_id,
         evaluate_metrics_aggr_fn=_federated_macro_f1,
     )
+
+    def central_eval(server_round: int, arrays: ArrayRecord) -> MetricRecord:
+        model = build_model(cfg)
+        model.load_state_dict(arrays.to_torch_state_dict())
+        details = evaluate_detailed(
+            model,
+            evaluation_loader,
+            len(LABELS),
+            max_embedding_cells=embedding_sample,
+            seed=int(cfg["seed"]) + server_round,
+        )
+        n = int(details.confusion.sum())
+        accuracy = float(np.trace(details.confusion) / max(n, 1))
+        global_f1 = macro_f1(details.tp, details.fp, details.fn)
+        logger.write(
+            "external_eval",
+            round=server_round,
+            **{
+                "num-examples": n,
+                "eval_loss": details.loss,
+                "accuracy": accuracy,
+                "macro_f1": global_f1,
+            },
+        )
+        logger.write(
+            "external_confusion",
+            round=server_round,
+            scope="global",
+            confusion=details.confusion.ravel().tolist(),
+        )
+
+        visualizations = list(strategy.site_visualizations.get(server_round, []))
+        for group_id, confusion in details.group_confusions.items():
+            dataset_name = evaluation_datasets[group_id]
+            logger.write(
+                "external_confusion",
+                round=server_round,
+                scope=dataset_name,
+                confusion=confusion.ravel().tolist(),
+            )
+            if details.groups is None:
+                continue
+            mask = details.groups == group_id
+            visualizations.append(
+                {
+                    "site": dataset_name,
+                    "source": "external",
+                    "embeddings": details.embeddings[mask],
+                    "y_true": details.y_true[mask],
+                    "y_pred": details.y_pred[mask],
+                }
+            )
+
+        embedding_parts = [
+            item["embeddings"] for item in visualizations if len(item["embeddings"])
+        ]
+        embeddings = (
+            np.concatenate(embedding_parts, axis=0)
+            if embedding_parts
+            else np.empty((0, int(cfg["hidden-size"])), dtype=np.float32)
+        )
+        if len(embeddings) >= 3:
+            coordinates = UMAP(
+                n_components=2,
+                n_neighbors=min(15, len(embeddings) - 1),
+                min_dist=0.1,
+                metric="euclidean",
+                random_state=int(cfg["seed"]),
+                n_jobs=1,
+            ).fit_transform(embeddings)
+            points = []
+            offset = 0
+            for item in visualizations:
+                count = len(item["embeddings"])
+                for i, (x, y) in enumerate(coordinates[offset : offset + count]):
+                    true = int(item["y_true"][i])
+                    predicted = int(item["y_pred"][i])
+                    points.append(
+                        {
+                            "x": float(x),
+                            "y": float(y),
+                            "label": true,
+                            "predicted": predicted,
+                            "correct": true == predicted,
+                            "source": item["source"],
+                            "site": item["site"],
+                        }
+                    )
+                offset += count
+            logger.write_umap(server_round, points)
+        else:
+            logger.write("umap_unavailable", round=server_round, points=len(embeddings))
+
+        return MetricRecord(
+            {
+                "num-examples": n,
+                "eval_loss": details.loss,
+                "accuracy": accuracy,
+                "macro_f1": global_f1,
+            }
+        )
+
     result = strategy.start(
         grid=grid,
         initial_arrays=_initial_arrays(cfg),
         train_config=ConfigRecord({"lr": float(cfg["lr"])}),
         num_rounds=int(cfg["num-server-rounds"]),
+        evaluate_fn=central_eval,
     )
 
     torch.save(result.arrays.to_torch_state_dict(), logger.dir / "final_model.pt")

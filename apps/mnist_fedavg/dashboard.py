@@ -79,6 +79,22 @@ pre{white-space:pre-wrap;font-size:12px;color:var(--muted);margin:0}
  <div class="card" id="card-class" style="display:none"><h2>F1 per cell type (federated, from the summed counts)</h2><div class="chart"><canvas id="c-class"></canvas></div></div>
  <div class="card" id="card-classbar" style="display:none"><h2>F1 per cell type, latest round</h2><div class="chart"><canvas id="c-classbar"></canvas></div></div>
 </div>
+<section id="hlca-viz" style="display:none;margin-top:12px">
+ <div class="card">
+  <h2>Testing visualizations</h2>
+  <div class="fedhead">
+   <label>Round <select id="viz-round"></select></label>
+   <label>UMAP color <select id="umap-color"><option value="label">Cell type</option><option value="correct">Correct / incorrect</option></select></label>
+   <label>UMAP source <select id="umap-source"><option value="all">All test sets</option><option value="site">Site-held-out</option><option value="external">External evaluation</option></select></label>
+   <span id="viz-note" class="note"></span>
+  </div>
+  <div class="chart" style="height:380px"><canvas id="c-umap"></canvas></div>
+ </div>
+ <div class="card" style="margin-top:12px">
+  <div class="fedhead"><h2 style="margin:0">Test confusion matrix</h2><label>Test set <select id="confusion-scope"></select></label><span id="confusion-note" class="note"></span></div>
+  <div class="scroll"><table id="confusion-table"></table></div>
+ </div>
+</section>
 <div class="card" style="margin-top:12px"><h2>Clients (latest round)</h2><div class="scroll"><table id="clients"><thead id="clients-head"></thead><tbody></tbody></table></div></div>
 <div class="card" style="margin-top:12px"><h2>Run config</h2><pre id="cfg"></pre></div>
 </main><script>
@@ -102,11 +118,15 @@ charts.ctrain.options.scales.y.ticks.callback=v=>{const e=Math.log10(v);return M
 const barChart=new Chart(document.getElementById("c-classbar"),{type:"bar",data:{labels:[],datasets:[]},
  options:{indexAxis:"y",animation:false,maintainAspectRatio:false,scales:{x:{min:0,max:1,title:{display:true,text:"F1"}}},
  plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`F1 ${c.parsed.x.toFixed(3)}`}}}}});
+const umapChart=new Chart(document.getElementById("c-umap"),{type:"scatter",data:{datasets:[]},
+ options:{animation:false,maintainAspectRatio:false,parsing:false,scales:{x:{title:{display:true,text:"UMAP 1"}},y:{title:{display:true,text:"UMAP 2"}}},
+ plugins:{legend:{position:"bottom"},tooltip:{callbacks:{label:c=>{const p=c.raw;return `${p.site} · ${p.name} · predicted ${p.predictedName} · ${p.correct?"correct":"incorrect"}`}}}}}});
 function view(o){document.getElementById("title").innerHTML=o.title;
  for(const k of ["acc","loss","ctrain","cval"])document.getElementById("h-"+k).textContent=o.h[k];
  document.getElementById("k-acc").textContent=o.k[0];document.getElementById("k-loss").textContent=o.k[1];
  for(const[k,f,y]of o.fmt){charts[k].$fmt=f;charts[k].options.scales.y.title.text=y}
  for(const id of ["card-class","card-classbar"])document.getElementById(id).style.display=o.classes?"":"none";
+ document.getElementById("hlca-viz").style.display=o.classes?"":"none";
  document.getElementById("clients-head").innerHTML="<tr>"+o.cols.map(c=>`<th>${c}</th>`).join("")+"</tr>"}
 const MNIST_VIEW={title:"FedAvg on MNIST &middot; live",k:["Global test accuracy","Global test loss"],classes:false,
  h:{acc:"Global model accuracy (server test set, 10k images; federated = mean of client val)",loss:"Global model loss",
@@ -119,11 +139,80 @@ const HLCA_VIEW={title:"FedAvg on the Human Lung Cell Atlas &middot; live",k:["F
  fmt:[["acc","f1","macro F1"],["cval","f1","macro F1"]],
  cols:["Client","Node ID","Train cells","Train loss","Val cells","Local macro F1"]};
 const f1=(tp,fp,fn)=>tp.map((t,i)=>{const d=2*t+fp[i]+fn[i];return tp[i]+fn[i]>0&&d>0?2*t/d:null});
+let visualKey=null,visualRound=null,visualPoints={},currentHLCARecs=[];
+const roundSel=document.getElementById("viz-round"),colorSel=document.getElementById("umap-color");
+const sourceSel=document.getElementById("umap-source"),confusionSel=document.getElementById("confusion-scope");
+for(const control of [roundSel,colorSel,sourceSel,confusionSel])control.onchange=()=>{visualRound=roundSel.value;refreshHLCAVisuals(currentHLCARecs)};
+function confusionTable(matrix,names){
+ const rows=matrix.map((row,i)=>`<tr><th title="${names[i]}">${names[i]}</th>${row.map((n,j)=>
+  `<td title="true ${names[i]}, predicted ${names[j]}">${n}</td>`).join("")}</tr>`).join("");
+ return `<thead><tr><th>True \\ Pred.</th>${names.map(n=>`<th title="${n}">${n}</th>`).join("")}</tr></thead><tbody>${rows}</tbody>`;
+}
+async function refreshHLCAVisuals(recs){
+ const wrapper=document.getElementById("hlca-viz");wrapper.style.display="";
+ const names=(recs.find(r=>r.type==="labels")||{labels:[]}).labels;
+ const rounds=[...new Set(recs.filter(r=>r.type==="federated_eval").map(r=>String(r.round)))].sort((a,b)=>+a-+b);
+ const wanted=visualRound&&rounds.includes(visualRound)?visualRound:rounds[rounds.length-1];
+ if(roundSel.innerHTML!==rounds.map(r=>`<option value="${r}">${r}</option>`).join("")){
+  roundSel.innerHTML=rounds.map(r=>`<option value="${r}">${r}</option>`).join("");
+ }
+ if(wanted){roundSel.value=wanted;visualRound=wanted;}
+ else{
+  umapChart.data.datasets=[];umapChart.update();
+  document.getElementById("viz-note").textContent="Waiting for the first test round.";
+  document.getElementById("confusion-table").innerHTML="";
+  document.getElementById("confusion-note").textContent="Confusion counts will appear after evaluation.";
+  return;
+ }
+ const round=Number(wanted);
+ const runKey=current+"/"+round;
+ if(visualKey!==runKey){
+  visualKey=runKey;visualPoints={};
+  try{
+   const response=await fetch(`api/umap?run=${encodeURIComponent(current)}&round=${round}`);
+   if(response.ok)visualPoints=await response.json();
+   else{visualKey=null;document.getElementById("viz-note").textContent="UMAP is not available for this round yet."}
+  }catch(e){visualKey=null;document.getElementById("viz-note").textContent="Could not load UMAP data."}
+ }
+ const points=visualPoints.points||[];
+ const selected=points.filter(p=>sourceSel.value==="all"||p.source===sourceSel.value).map(p=>({
+  ...p,name:names[p.label]||`class ${p.label}`,predictedName:names[p.predicted]||`class ${p.predicted}`}));
+ const byLabel=new Map();
+ selected.forEach(p=>{if(!byLabel.has(p.name))byLabel.set(p.name,[]);byLabel.get(p.name).push(p)});
+ const colorMode=colorSel.value;
+ umapChart.data.datasets=colorMode==="correct"?[
+  {label:"Correct",data:selected.filter(p=>p.correct),backgroundColor:"#2f6fde",pointRadius:3},
+  {label:"Incorrect",data:selected.filter(p=>!p.correct),backgroundColor:"#d64545",pointRadius:3}
+ ]:[...byLabel.entries()].map(([name,data],i)=>({label:name,data,backgroundColor:PALETTE[i%PALETTE.length],pointRadius:3}));
+ umapChart.update();
+ document.getElementById("viz-note").textContent=points.length?`${selected.length.toLocaleString()} sampled test cells · shared embedding`: "Waiting for sampled test-cell embeddings.";
+
+ const clientRows=recs.filter(r=>r.type==="client_eval"&&String(r.round)===wanted);
+ const globalRow=recs.find(r=>r.type==="federated_eval"&&String(r.round)===wanted);
+ const externalRows=recs.filter(r=>r.type==="external_confusion"&&String(r.round)===wanted);
+ const scopes=[];
+ if(globalRow)scopes.push({id:"sites-global",label:"All sites (pooled)",matrix:globalRow.confusion});
+ if(externalRows.some(r=>r.scope==="global"))scopes.push({id:"external-global",label:"External evaluation (overall)",matrix:externalRows.find(r=>r.scope==="global").confusion});
+ for(const row of clientRows)scopes.push({id:`client-${row["partition-id"]}`,label:`Client ${row["partition-id"]} (held-out)`,matrix:row.confusion});
+ for(const row of externalRows.filter(r=>r.scope!=="global"))scopes.push({id:`external-${row.scope}`,label:`External: ${row.scope}`,matrix:row.confusion});
+ const old=confusionSel.value;
+ confusionSel.innerHTML=scopes.map(s=>`<option value="${esc(s.id)}">${esc(s.label)}</option>`).join("");
+ if(scopes.some(s=>s.id===old))confusionSel.value=old;
+ const scope=scopes.find(s=>s.id===confusionSel.value);
+ if(scope){
+  const matrix=Array.from({length:names.length},(_,i)=>scope.matrix.slice(i*names.length,(i+1)*names.length));
+  document.getElementById("confusion-table").innerHTML=confusionTable(matrix,names);
+  document.getElementById("confusion-note").textContent=`${matrix.flat().reduce((a,b)=>a+b,0).toLocaleString()} test cells · rows are true labels`;
+ }else{
+  document.getElementById("confusion-table").innerHTML="";
+  document.getElementById("confusion-note").textContent="Confusion counts will appear after evaluation.";
+ }
+}
 function elapsed(recs){const tl=recs.length?recs[recs.length-1].t:0;return tl>=60?`${Math.floor(tl/60)}m ${Math.round(tl%60)}s`:`${tl.toFixed(0)}s`}
 function runStatus(errs,end){const st=document.getElementById("status");
  if(errs.length){st.className="err";st.textContent=`● ${errs.length} client error(s)`}
  else if(end){st.className="done";st.textContent="● finished"}else{st.className="live";st.textContent="● running"}}
-function renderHLCA(recs,start,end){view(HLCA_VIEW);
+function renderHLCA(recs,start,end){currentHLCARecs=recs;view(HLCA_VIEW);
  const fe=recs.filter(r=>r.type==="federated_eval"),ct=recs.filter(r=>r.type==="client_train"),ce=recs.filter(r=>r.type==="client_eval");
  const lr=recs.find(r=>r.type==="labels"),last=fe[fe.length-1],N=start?start.config["num-server-rounds"]:"?";
  const names=lr?lr.labels:(last?last.tp.map((_,i)=>`class ${i}`):[]);
@@ -147,7 +236,8 @@ function renderHLCA(recs,start,end){view(HLCA_VIEW);
   `<tr><td><span class="dot" style="background:${PALETTE[i%PALETTE.length]}"></span>${label(v.t||v.e)}</td><td>${n}</td>
   <td>${v.t?v.t["num-examples"]:"–"}</td><td>${v.t?v.t.train_loss.toFixed(4):"–"}</td><td>${v.e?v.e["num-examples"]:"–"}</td>
   <td class="${v.e&&v.e.local_macro_f1<0.5?"err":""}">${v.e?v.e.local_macro_f1.toFixed(3):"–"}</td></tr>`).join("");
- document.getElementById("cfg").textContent=start?JSON.stringify(start.config,null,1):""}
+ document.getElementById("cfg").textContent=start?JSON.stringify(start.config,null,1):"";
+ refreshHLCAVisuals(recs)}
 function setSeries(chart,series){chart.data.datasets=series.map((s,i)=>({label:s.label,data:s.data,borderColor:s.color||PALETTE[i%PALETTE.length],
  backgroundColor:s.color||PALETTE[i%PALETTE.length],borderWidth:2,pointRadius:2,tension:0.15,borderDash:s.dash||[]}));chart.update()}
 const runSel=document.getElementById("run");let current=null;
@@ -344,6 +434,23 @@ def make_handler(root: Path, fed: Federation):
                     return self._send(b"[]", "application/json", 404)
                 rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
                 return self._send(json.dumps(rows).encode(), "application/json")
+            if url.path == "/api/umap":
+                query = parse_qs(url.query)
+                run = query.get("run", [""])[0]
+                try:
+                    server_round = int(query.get("round", [""])[0])
+                except ValueError:
+                    return self._send(b"invalid round", "text/plain", 400)
+                run_dir = (root / run).resolve()
+                path = (run_dir / "umap" / f"round-{server_round:04d}.json").resolve()
+                if (
+                    not run
+                    or root.resolve() not in run_dir.parents
+                    or root.resolve() not in path.parents
+                    or not path.is_file()
+                ):
+                    return self._send(b"{}", "application/json", 404)
+                return self._send(path.read_bytes(), "application/json")
             if url.path == "/api/federation":
                 return self._send(json.dumps(fed.snapshot()).encode(), "application/json")
             self._send(b"not found", "text/plain", 404)
