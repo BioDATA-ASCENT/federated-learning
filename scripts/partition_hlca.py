@@ -8,8 +8,9 @@ Run from the project folder with the environment active:
 Output in data/hlca/:
     initial_training.h5ad             the two largest datasets not in INSTITUTIONS
     evaluation.h5ad                   the other two datasets not in INSTITUTIONS
-    client_1.h5ad ... client_6.h5ad   one file per institution, from INSTITUTIONS
+    client_0.h5ad ... client_5.h5ad   one file per institution, from INSTITUTIONS
     contract.json                     shared gene list, label list, and file summaries
+    genes.txt                         the feature contract, one gene per line, for every node
     hvg_genes.json                    the saved gene list, reused by later runs
 
 Every file holds raw counts in X and the same 2000 genes in the same order.
@@ -44,21 +45,36 @@ from scipy import sparse
 
 # ---- Edit these to change the split --------------------------------------------
 INSTITUTIONS = {
-    "client_1": ["Krasnow_2020"],
-    "client_2": ["Meyer_2019", "Teichmann_Meyer_2019"],
-    "client_3": ["Jain_Misharin_2021_10Xv1", "Jain_Misharin_2021_10Xv2"],
-    "client_4": ["Misharin_Budinger_2018"],
-    "client_5": ["Seibold_2020_10Xv2", "Seibold_2020_10Xv3"],
-    "client_6": ["Lafyatis_Rojas_2019_10Xv1", "Lafyatis_Rojas_2019_10Xv2"],
+    "client_0": ["Krasnow_2020"],
+    "client_1": ["Meyer_2019", "Teichmann_Meyer_2019"],
+    "client_2": ["Jain_Misharin_2021_10Xv1", "Jain_Misharin_2021_10Xv2"],
+    "client_3": ["Misharin_Budinger_2018"],
+    "client_4": ["Seibold_2020_10Xv2", "Seibold_2020_10Xv3"],
+    "client_5": ["Lafyatis_Rojas_2019_10Xv1", "Lafyatis_Rojas_2019_10Xv2"],
 }
 # Optional: make an institution smaller by keeping a random set of its cells.
-# Example: MAX_CELLS = {"client_6": 5000}
+# Example: MAX_CELLS = {"client_5": 5000}
 MAX_CELLS: dict[str, int] = {}
 # ---------------------------------------------------------------------------------
 
 DATASET_COL = "dataset"
 LABEL_COL = "ann_level_2"
 DONOR_COL = "donor_id"
+# The label contract, which must equal LABELS in apps/hlca_fedavg/hlca_fedavg/task.py.
+# Cells outside it are dropped. At ann_level_2 that is Mesothelium (230 cells) and
+# Hematopoietic stem cells (60 cells): too few to learn or to score, and as classes
+# they would own two elevenths of macro F1.
+LABELS = (
+    "Airway epithelium",
+    "Alveolar epithelium",
+    "Blood vessels",
+    "Fibroblast lineage",
+    "Lymphatic EC",
+    "Lymphoid",
+    "Myeloid",
+    "Smooth muscle",
+    "Submucosal Gland",
+)
 KEEP_COLS = [DATASET_COL, LABEL_COL, DONOR_COL, "study", "ann_finest_level", "assay"]
 # HLCA sets a level to the text "None" when a cell has no annotation at that level.
 MISSING_LABELS = {"", "na", "nan", "none", "unknown"}
@@ -221,6 +237,10 @@ def main() -> None:
 
         text = obs[LABEL_COL].astype(object).astype(str).str.strip().str.lower()
         labelled = (obs[LABEL_COL].notna() & ~text.isin(MISSING_LABELS)).to_numpy()
+        in_contract = obs[LABEL_COL].astype(str).isin(LABELS).to_numpy()
+        for name, count in obs.loc[labelled & ~in_contract, LABEL_COL].astype(str).value_counts().items():
+            say(f"Dropping {count:,} cells labelled {name}: outside the label contract.")
+        labelled &= in_contract
         sizes = pd.Series(dataset[labelled]).value_counts()
 
         # Assign each dataset to a group. A misspelled name would otherwise lose its cells.
@@ -262,11 +282,15 @@ def main() -> None:
         keep_genes = load_or_choose_genes(f, args.output / "hvg_genes.json", initial, dataset, genes)
         counts = collect_counts(f, group, len(group_names), len(genes), keep_genes)
 
-    labels = sorted(obs.loc[group >= 0, LABEL_COL].astype(str).unique())
+    labels = list(LABELS)
     say(f"\n{len(labels)} labels from {LABEL_COL}: {', '.join(labels)}")
     var = pd.DataFrame(index=genes.index[keep_genes].astype(str))
     if "feature_name" in genes:
         var["feature_name"] = genes["feature_name"].iloc[keep_genes].astype(str).to_numpy()
+
+    gene_path = args.output / "genes.txt"
+    gene_path.write_text("\n".join(var.index) + "\n", encoding="utf-8")
+    say(f"Wrote the {len(var.index)} gene feature contract to {gene_path.name}")
 
     say("\nWriting the files ...")
     files = []
