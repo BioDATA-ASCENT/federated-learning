@@ -4,6 +4,17 @@ Train one model across many labs or hospitals without moving the data. Each clie
 
 Start with [quickstart.md](quickstart.md). It sets up the environment and downloads the data. [Progress.md](Progress.md) is the checklist. [DEPLOYMENT.md](DEPLOYMENT.md) covers running the federation across machines: one server, laptops as nodes.
 
+### Federation server
+
+The scripts and docs read the server login from two environment variables:
+
+```bash
+export FL_HOST=100.53.208.149   # federation server (AWS)
+export FL_USER=user1            # default shared login; use your own if the lead gave you one
+```
+
+The password is never stored in the repo. Ask the lead for it, and use it once with `ssh-copy-id` (see [DEPLOYMENT.md](DEPLOYMENT.md)).
+
 ## Food for thought
 
 Start with the FedAvg paper and your track's references below. These questions examine the proposed design:
