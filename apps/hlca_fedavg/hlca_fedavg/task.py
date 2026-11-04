@@ -39,6 +39,15 @@ LABELS: tuple[str, ...] = (
 )
 
 
+def client_file(partition_id: int) -> str:
+    """The partition file for a Flower partition id.
+
+    Flower numbers partitions from 0. The partition files are numbered from 1,
+    as the institutions are, so partition 0 reads client_1.h5ad.
+    """
+    return f"client_{partition_id + 1}.h5ad"
+
+
 def load_genes(path: str | Path) -> list[str]:
     """The fixed gene list, in the order every client must present."""
     p = Path(os.path.expanduser(str(path)))
@@ -132,16 +141,16 @@ def _split_indices(a: ad.AnnData, val_fraction: float, seed: int) -> tuple[np.nd
 def load_client(partition_id: int, cfg: dict) -> tuple[DataLoader, DataLoader, list[str]]:
     """Load one client's partition and return its train and validation loaders.
 
-    Reads `<data-dir>/client_<partition_id>.h5ad`, which holds raw counts over
-    the contract's genes and an `ann_level_2` column. Normalizes to 1e4 counts
-    and log1p per client, which is the per-client half of the preprocessing
-    contract.
+    Reads `<data-dir>/client_<partition_id + 1>.h5ad`, which holds raw counts
+    over the contract's genes and an `ann_level_2` column. Normalizes to 1e4
+    counts and log1p per client, which is the per-client half of the
+    preprocessing contract.
     """
     genes = load_genes(cfg["gene-list"])
     labels = list(LABELS)
-    path = Path(os.path.expanduser(str(cfg["data-dir"]))) / f"client_{partition_id}.h5ad"
+    path = Path(os.path.expanduser(str(cfg["data-dir"]))) / client_file(partition_id)
     if not path.is_file():
-        raise FileNotFoundError(f"No partition for client {partition_id} at {path}.")
+        raise FileNotFoundError(f"No partition for partition {partition_id} at {path}.")
 
     a = ad.read_h5ad(path)
     _check_contracts(a, genes, labels, path)
