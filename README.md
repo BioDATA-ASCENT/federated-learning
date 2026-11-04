@@ -6,18 +6,18 @@ Start with [quickstart.md](quickstart.md). It sets up the environment and downlo
 
 ## Food for thought
 
-Start with the FedAvg paper and your track's method and dataset references below. Use these questions to examine the proposed design before prototyping:
+Start with the FedAvg paper and your track's references below. These questions examine the proposed design:
 
 - Does averaging locally trained logistic regressions reproduce pooled training? How do local epochs, initialization, and learning rates affect the comparison?
 - Which preprocessing steps use pooled or held-out data? What does that imply for the federation and evaluation?
 - How should missing classes enter macro F1? Is averaging client scores equivalent to evaluating pooled predictions?
 - If attribution is the global coefficient vector, does computing it at every client add information? What would make an attribution data-dependent?
 
-Choose a track and one question to explore with a small prototype. The three stages below give a common direction; participants choose how far to take them for the demo.
+Choose a track and one question to explore with a small prototype. The three stages below give a common direction. How far you take them is your choice.
 
 ## The three stages
 
-All tracks use one FedAvg loop, one client interface, and one result table.
+The tracks can share one FedAvg loop, one client interface, and one result table.
 
 1. **Federated training.** Client: receive global weights, train locally for E epochs, return weights and sample count. Server: weighted average, repeat for R rounds. Crosses the wire: weights only.
 2. **Federated inference.** Client: evaluate the global model on local held-out data, return the metric. Server: report per client and as a weighted mean. Output: the main table (rows = clients, columns = local, FedAvg, pooled) and one plot of per-client gain.
@@ -25,7 +25,7 @@ All tracks use one FedAvg loop, one client interface, and one result table.
 
 ## The contracts
 
-FL works only when every client agrees on four things before the first round. The morning session makes each one explicit, because this is where real federations fail.
+FL works only when every client agrees on four things before the first round. Make each one explicit, because this is where real federations fail.
 
 | Contract | What every client must agree on | What breaks if violated |
 |---|---|---|
@@ -58,34 +58,27 @@ The pancreas data are small and come from nine different protocols. That is the 
 | B | Cancer tissue of origin from panel mutations, one client per institution | [tracks/TrackB_tissue_of_origin.md](tracks/TrackB_tissue_of_origin.md) |
 | C | Survival on immune checkpoint inhibitors, one client per hospital cohort | [tracks/TrackC_ici_survival.md](tracks/TrackC_ici_survival.md) |
 
-The tracks are parallel choices. Work individually or in pairs on the problem that interests you; share infrastructure where useful.
+The tracks are parallel choices. Work alone or in pairs on the problem that interests you, and share infrastructure where useful.
 
 ## Before the hackathon
 
-The organizers ask for a full prototype by noon. So a pipeline must run end to end on the pancreas data before the hackathon starts. It provides a shared walkthrough and a fallback while participants explore their chosen tracks. [Progress.md](Progress.md) lists the parts to build and the condition that closes each one.
+The organizers ask for a full prototype by noon, so a pipeline must run end to end on the pancreas data before the day starts. It gives everyone a shared walkthrough and a fallback demo. [Progress.md](Progress.md) lists the parts to build and the condition that closes each one.
 
 The repository now holds the environment, the download script, and these docs. No pipeline code exists yet.
 
 Framework: Flower, `flwr[simulation]==1.42.0`, Python 3.11 or 3.12, Message API only (`ServerApp`, `ClientApp`, `Grid`, `@app.train()`). Tutorials that use `NumPyClient`, `server_fn`, or `start_simulation` are the old API. Do not follow them.
 
-## Schedule
+## The day
 
-These are shared checkpoints. Participants choose their experiments and can adjust scope as they learn.
+Two times are fixed: a checkpoint at noon and the presentation at 5:00. Use the rest as you see fit.
 
-| Time | Block | What happens |
-|---|---|---|
-| 9:00 | Literature exchange | Share ideas and assumptions from the general and track-specific reading. |
-| 9:20 | Brainstorm | Discuss the questions above and in the chosen track. Sketch the smallest useful experiment. |
-| 10:30 | Prototype | Walk through the pancreas example or start a track-specific prototype. |
-| 12:00 | Checkpoint | Show what runs, what you learned, and what is unresolved. Use the prepared prototype if needed. Choose an afternoon experiment. |
-| 1:00 | Explore | Run the experiment and compare with a baseline. Share unexpected results. |
-| 3:00 | Demo freeze | Preserve a working run and saved outputs. |
-| 4:00 | Rehearse | Explain the question, setup, result, and limitations. |
-| 5:00 | Present | Show the demo and the next experiment you would try. |
+- Morning: read, discuss the questions above and in your track, and sketch the smallest useful experiment.
+- Noon: show what runs and what you learned. Choose what to do next.
+- Afternoon: run the experiment and compare it with a baseline.
+- 3:00: keep a working run and its saved outputs.
+- 5:00: present the result and the next experiment you would try.
 
-Possible experiments: write a loader for a chosen track, write a small FedAvg loop, vary local epochs or client balance, compare local/FedAvg/pooled performance, inspect feature weights, or move a working experiment into Flower. Deployment and all three stages remain options; each participant chooses a manageable contribution.
-
-Commit working changes regularly. Ask after 20 minutes stuck. Aim for a runnable comparison and one table or plot per active track. A negative result is useful; if only part of the pipeline works, demonstrate it and explain what remains. Simulation and saved outputs are the demo fallback.
+A negative result is useful. If only part of the work runs, show that part and say what remains.
 
 ## After the hackathon
 
