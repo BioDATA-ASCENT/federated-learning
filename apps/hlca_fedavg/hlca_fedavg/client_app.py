@@ -14,10 +14,10 @@ import os
 from pathlib import Path
 
 import torch
-from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
+from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
-from hlca_fedavg.task import build_model, evaluate, load_client, macro_f1, train
+from hlca_fedavg.task import build_model, evaluate, gene_list_hash, load_client, load_genes, macro_f1, train
 
 app = ClientApp()
 
@@ -63,6 +63,33 @@ def train_fn(msg: Message, context: Context) -> Message:
     metrics = MetricRecord({"num-examples": n, "train_loss": losses[-1], "partition-id": pid})
     content = RecordDict({"arrays": ArrayRecord(model.state_dict()), "metrics": metrics})
     return Message(content=content, reply_to=msg)
+
+
+@app.query()
+def query_fn(msg: Message, context: Context) -> Message:
+    """Readiness check (run with check-only=true): load and check the partition, train nothing.
+
+    Uses the same loader and contract checks as a training round. A failure is
+    reported as the reason, not raised, so the server can print it.
+    """
+    cfg = dict(context.run_config)
+    try:
+        pid = _partition_id(context)
+        train_loader, val_loader, _ = load_client(pid, cfg)
+        status = {
+            "ready": 1,
+            "partition-id": pid,
+            "train-cells": len(train_loader.dataset),
+            "val-cells": len(val_loader.dataset),
+            "genes-hash": gene_list_hash(load_genes(cfg["gene-list"])),
+            "detail": "ok",
+        }
+        print(f"[check] ready as client {pid}: {status['train-cells']} train, {status['val-cells']} val cells", flush=True)
+    except Exception as e:  # noqa: BLE001  the reason goes back to the server
+        status = {"ready": 0, "partition-id": -1, "train-cells": 0, "val-cells": 0,
+                  "genes-hash": "", "detail": f"{type(e).__name__}: {e}"}
+        print(f"[check] not ready: {status['detail']}", flush=True)
+    return Message(content=RecordDict({"status": ConfigRecord(status)}), reply_to=msg)
 
 
 @app.evaluate()
