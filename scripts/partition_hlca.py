@@ -10,15 +10,19 @@ Output in data/hlca/:
     evaluation.h5ad                   the other two datasets not in INSTITUTIONS
     client_1.h5ad ... client_6.h5ad   one file per institution, from INSTITUTIONS
     contract.json                     shared gene list, label list, and file summaries
+    hvg_genes.json                    the saved gene list, reused by later runs
 
 Every file holds raw counts in X and the same 2000 genes in the same order.
 
-The 2000 genes are chosen from the initial training cells only, so no institution's
-private cells and no evaluation cells affect them. The result matches this scanpy
-call on those cells:
+The 2000 genes are chosen from all cells in the two initial training datasets, so no
+institution's private cells and no evaluation cells affect them. The result matches
+this scanpy call on those cells:
 
     sc.pp.normalize_total(a, target_sum=1e4); sc.pp.log1p(a)
     sc.pp.highly_variable_genes(a, n_top_genes=2000, batch_key="dataset")
+
+The choice is made once and saved in hvg_genes.json. Later runs reuse it as long as the
+initial training datasets stay the same. Delete that file to force a new choice.
 
 The source is too large to load into a laptop's memory, so it is read in blocks.
 """
@@ -53,7 +57,7 @@ MAX_CELLS: dict[str, int] = {}
 # ---------------------------------------------------------------------------------
 
 DATASET_COL = "dataset"
-LABEL_COL = "ann_level_3"
+LABEL_COL = "ann_level_2"
 DONOR_COL = "donor_id"
 KEEP_COLS = [DATASET_COL, LABEL_COL, DONOR_COL, "study", "ann_finest_level", "assay"]
 # HLCA sets a level to the text "None" when a cell has no annotation at that level.
@@ -159,6 +163,28 @@ def choose_genes(f: h5py.File, batch: np.ndarray, n_batches: int, gene_ids: pd.I
     return np.sort(gene_ids.get_indexer(ranking.index[:N_GENES]))  # fixed order: as in the source
 
 
+def load_or_choose_genes(f: h5py.File, path: Path, initial: list[str], dataset: np.ndarray, genes: pd.DataFrame) -> np.ndarray:
+    """Reuse the saved gene list if it came from the same datasets. Otherwise make it and save it."""
+    if path.exists():
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        positions = genes.index.get_indexer(saved["genes"])
+        if sorted(saved["initial_training"]) == sorted(initial) and len(positions) == N_GENES and (positions >= 0).all():
+            say(f"Using the saved gene list in {path.name}, so step 1 is skipped.")
+            return np.sort(positions)
+        say(f"{path.name} does not match this split, so choosing the genes again.")
+
+    batch_of = {name: b for b, name in enumerate(initial)}
+    batch = pd.Series(dataset).map(batch_of).fillna(-1).astype(np.int32).to_numpy()
+    keep_genes = choose_genes(f, batch, len(initial), genes.index)
+    path.write_text(json.dumps({
+        "initial_training": initial,
+        "genes": genes.index[keep_genes].astype(str).tolist(),
+        "gene_symbols": genes["feature_name"].iloc[keep_genes].astype(str).tolist() if "feature_name" in genes else None,
+    }, indent=1), encoding="utf-8")
+    say(f"Saved the gene list in {path.name}.")
+    return keep_genes
+
+
 def collect_counts(f: h5py.File, group: np.ndarray, n_groups: int, n_genes: int, keep_genes: np.ndarray):
     """Gather each group's cells, in source order, on the chosen genes."""
     parts: list[list] = [[] for _ in range(n_groups)]
@@ -182,6 +208,7 @@ def main() -> None:
     args = parser.parse_args()
     if not args.input.exists():
         sys.exit(f"Cannot find {args.input}. Download it first (see quickstart.md).")
+    args.output.mkdir(parents=True, exist_ok=True)
 
     began = time.time()
     with h5py.File(args.input, "r") as f:
@@ -232,18 +259,15 @@ def main() -> None:
             if name != "evaluation" and donors & donor_sets["evaluation"]:
                 say(f"WARNING: evaluation shares {len(donors & donor_sets['evaluation'])} donor(s) with {name}.")
 
-        batch_of = {name: b for b, name in enumerate(initial)}
-        batch = pd.Series(dataset).map(batch_of).fillna(-1).astype(np.int32).to_numpy()
-        batch[~labelled] = -1
-        keep_genes = choose_genes(f, batch, len(initial), genes.index)
+        keep_genes = load_or_choose_genes(f, args.output / "hvg_genes.json", initial, dataset, genes)
         counts = collect_counts(f, group, len(group_names), len(genes), keep_genes)
 
     labels = sorted(obs.loc[group >= 0, LABEL_COL].astype(str).unique())
+    say(f"\n{len(labels)} labels from {LABEL_COL}: {', '.join(labels)}")
     var = pd.DataFrame(index=genes.index[keep_genes].astype(str))
     if "feature_name" in genes:
         var["feature_name"] = genes["feature_name"].iloc[keep_genes].astype(str).to_numpy()
 
-    args.output.mkdir(parents=True, exist_ok=True)
     say("\nWriting the files ...")
     files = []
     for g, name in enumerate(group_names):
@@ -271,7 +295,7 @@ def main() -> None:
     contract = {
         "source": args.input.name,
         "label_column": LABEL_COL,
-        "gene_selection": f"{N_GENES} genes from initial_training cells only, batch_key='{DATASET_COL}'",
+        "gene_selection": f"{N_GENES} genes from all cells in the initial_training datasets, batch_key='{DATASET_COL}'",
         "max_cells": MAX_CELLS,
         "files": files,
         "labels": labels,
