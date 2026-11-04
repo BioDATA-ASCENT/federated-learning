@@ -1,6 +1,8 @@
 # Running the federation across machines
 
-One server runs the Flower **SuperLink** (the coordinator). Each laptop runs a **SuperNode** (a client) and trains on its own data. Only model weights travel between them.
+One server runs the Flower **SuperLink** (the coordinator). Each laptop runs a **SuperNode** (a client) and trains on its own data. Raw client training examples stay local; Flower exchanges model weights, configuration, and metrics, and distributes the application code to nodes.
+
+This is a demo deployment. See [Security hardening roadmap](SECURITY_ROADMAP.md) for proposed protections, implementation priorities, and acceptance checks before broader or sensitive-data use.
 
 ```
  laptop A (node) ──ssh tunnel──┐
