@@ -17,7 +17,16 @@ import torch
 from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
-from hlca_fedavg.task import build_model, evaluate, gene_list_hash, load_client, load_genes, macro_f1, train
+from hlca_fedavg.task import (
+    build_model,
+    evaluate_detailed,
+    gene_list_hash,
+    load_client,
+    load_genes,
+    macro_f1,
+    is_umap_round,
+    train,
+)
 
 app = ClientApp()
 
@@ -94,22 +103,36 @@ def query_fn(msg: Message, context: Context) -> Message:
 
 @app.evaluate()
 def evaluate_fn(msg: Message, context: Context) -> Message:
-    pid, _, model, _, val_loader, labels = _setup(msg, context)
-    loss, tp, fp, fn = evaluate(model, val_loader, len(labels))
+    pid, cfg, model, _, val_loader, labels = _setup(msg, context)
+    server_round = int(msg.content["config"]["server-round"])
+    sample_embeddings = is_umap_round(server_round)
+    details = evaluate_detailed(
+        model,
+        val_loader,
+        len(labels),
+        max_embedding_cells=None if sample_embeddings else 0,
+        seed=int(cfg["seed"]) + pid,
+    )
     n = len(val_loader.dataset)
-    local = macro_f1(tp, fp, fn)
+    local = macro_f1(details.tp, details.fp, details.fn)
     print(f"[client {pid}] local macro F1 {local:.4f} on {n} cells", flush=True)
-    # The counts travel, not the score: the server needs the totals to compute
-    # one macro F1. local_macro_f1 rides along for the per-client table only.
+    # Confusion counts cover every held-out cell; on scheduled rounds, hidden
+    # embeddings and predictions for every cell support the shared UMAP.
     metrics = MetricRecord(
         {
             "num-examples": n,
-            "eval_loss": loss,
+            "eval_loss": details.loss,
             "local_macro_f1": local,
             "partition-id": pid,
-            "tp": tp.tolist(),
-            "fp": fp.tolist(),
-            "fn": fn.tolist(),
+            "tp": details.tp.tolist(),
+            "fp": details.fp.tolist(),
+            "fn": details.fn.tolist(),
+            "confusion": details.confusion.ravel().tolist(),
         }
     )
-    return Message(content=RecordDict({"metrics": metrics}), reply_to=msg)
+    content = RecordDict({"metrics": metrics})
+    if sample_embeddings:
+        content["visualization"] = ArrayRecord.from_numpy_ndarrays(
+            [details.embeddings, details.y_true, details.y_pred]
+        )
+    return Message(content=content, reply_to=msg)
