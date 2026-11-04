@@ -13,6 +13,12 @@ The server's firewall only allows SSH, so nodes connect through an SSH tunnel. N
 
 The demo app is [apps/mnist_fedavg](apps/mnist_fedavg). It is a toy FedAvg on MNIST: an MLP (784→128→10) trained with SGD and momentum, ported from [naderAsadi/FedAvg](https://github.com/naderAsadi/FedAvg) to the Flower Message API. Each node downloads MNIST itself (63 MB) and trains on its own slice of it.
 
+## Check laptop CPU performance
+
+Before joining, you can run `make hardware-check` after `make env`. It benchmarks the same MLP training loop with synthetic MNIST-shaped data, so it needs no MNIST download, SSH connection, or server. It reports the machine architecture, logical CPU count, PyTorch version, and median examples per second at several CPU thread counts. The default uses three measured runs per thread count after a warm-up.
+
+Use the same sample count and thread settings to compare computers. For example, `make hardware-check` sweeps thread counts up to 8; pass custom settings with `.venv/bin/python apps/mnist_fedavg/benchmark_hardware.py --threads 1,2,4,8,16`. This is a CPU workload proxy, not a way to emulate a different chip, and the current federated client continues to use its normal PyTorch CPU settings.
+
 ## Join as a node (every laptop)
 
 You need macOS or Linux (on Windows, use WSL), and SSH access to the server. Ask the lead for the login.
