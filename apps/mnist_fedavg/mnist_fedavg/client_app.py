@@ -1,7 +1,9 @@
 """ClientApp: runs on every SuperNode, on that laptop's own MNIST share.
 
-Each SuperNode must be started with
-    --node-config 'partition-id=<0..N-1> num-partitions=<N>'
+The server assigns each node its partition-id and num-partitions and sends them
+in every message's config. A SuperNode started with
+    --node-config 'partition-id=<i> num-partitions=<N>'
+uses those values only when the message carries none (e.g. in simulation).
 """
 
 import time
@@ -16,8 +18,12 @@ app = ClientApp()
 
 
 def _setup(msg: Message, context: Context):
-    pid = int(context.node_config["partition-id"])
-    nparts = int(context.node_config["num-partitions"])
+    msg_cfg = msg.content["config"]
+    if "partition-id" in msg_cfg:  # assigned by the server
+        pid, nparts = int(msg_cfg["partition-id"]), int(msg_cfg["num-partitions"])
+    else:  # simulation, or a node started with --node-config
+        pid = int(context.node_config["partition-id"])
+        nparts = int(context.node_config["num-partitions"])
     cfg = dict(context.run_config)
     torch.manual_seed(int(cfg["seed"]) + pid)
     model = MLP()
