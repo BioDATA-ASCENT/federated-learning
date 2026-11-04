@@ -138,19 +138,20 @@ def _split_indices(a: ad.AnnData, val_fraction: float, seed: int) -> tuple[np.nd
     return train_idx, val_idx
 
 
-def load_client(partition_id: int, cfg: dict) -> tuple[DataLoader, DataLoader, list[str]]:
-    """Load one client's partition and return its train and validation loaders.
+def load_partition(path: Path, cfg: dict) -> tuple[DataLoader, DataLoader, list[str]]:
+    """Load one partition file and return its train and validation loaders.
 
-    Reads `<data-dir>/client_<partition_id + 1>.h5ad`, which holds raw counts
-    over the contract's genes and an `ann_level_2` column. Normalizes to 1e4
-    counts and log1p per client, which is the per-client half of the
-    preprocessing contract.
+    The file holds raw counts over the contract's genes and an `ann_level_2`
+    column. Normalizes to 1e4 counts and log1p, which is the per-client half of
+    the preprocessing contract. Holds out whole donors for validation.
+
+    Used for a client's own partition and for the central initial_training file,
+    so both go through the same contract checks and the same preprocessing.
     """
     genes = load_genes(cfg["gene-list"])
     labels = list(LABELS)
-    path = Path(os.path.expanduser(str(cfg["data-dir"]))) / client_file(partition_id)
     if not path.is_file():
-        raise FileNotFoundError(f"No partition for partition {partition_id} at {path}.")
+        raise FileNotFoundError(f"No partition at {path}.")
 
     a = ad.read_h5ad(path)
     _check_contracts(a, genes, labels, path)
@@ -174,6 +175,15 @@ def load_client(partition_id: int, cfg: dict) -> tuple[DataLoader, DataLoader, l
         return DataLoader(sub, batch_size=batch, shuffle=shuffle)
 
     return loader(train_idx, True), loader(val_idx, False), labels
+
+
+def load_client(partition_id: int, cfg: dict) -> tuple[DataLoader, DataLoader, list[str]]:
+    """Load the partition that belongs to this Flower partition id.
+
+    Reads `<data-dir>/client_<partition_id + 1>.h5ad`.
+    """
+    data_dir = Path(os.path.expanduser(str(cfg["data-dir"])))
+    return load_partition(data_dir / client_file(partition_id), cfg)
 
 
 def train(model: MLP, loader: DataLoader, epochs: int, lr: float, momentum: float) -> list[float]:
