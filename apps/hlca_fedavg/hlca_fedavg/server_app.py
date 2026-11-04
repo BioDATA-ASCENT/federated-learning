@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MetricRecord, RecordDict
+from flwr.app import ArrayRecord, ConfigRecord, Context, Message, MessageType, MetricRecord, RecordDict
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg
 from flwr.serverapp.strategy.strategy_utils import aggregate_metricrecords
@@ -27,7 +27,9 @@ from hlca_fedavg.task import (
     LABELS,
     build_model,
     evaluate_detailed,
+    gene_list_hash,
     load_evaluation,
+    load_genes,
     macro_f1,
 )
 
@@ -172,12 +174,76 @@ def _initial_arrays(cfg: dict) -> ArrayRecord:
     return ArrayRecord(model.state_dict())
 
 
+def _check_nodes(grid: Grid, cfg: dict) -> None:
+    """Ask every connected node whether it can train, and train nothing.
+
+    Each node loads its partition with the same loader and contract checks as a
+    training round. The table flags nodes that cannot load, two nodes on one
+    partition, and a gene list that differs from the server's.
+    """
+    server_hash = gene_list_hash(load_genes(cfg["gene-list"]))
+    node_ids = sorted(grid.get_node_ids())
+    timeout = float(cfg["check-timeout-seconds"])
+    print(f"Readiness check: asking {len(node_ids)} connected nodes (timeout {timeout:.0f} s)", flush=True)
+    messages = [
+        Message(content=RecordDict({"config": ConfigRecord({})}), message_type=MessageType.QUERY, dst_node_id=nid)
+        for nid in node_ids
+    ]
+    replies = {m.metadata.src_node_id: m for m in grid.send_and_receive(messages, timeout=timeout)}
+
+    rows: list[list[str]] = []
+    by_partition: dict[int, list[int]] = {}
+    for nid in node_ids:
+        msg = replies.get(nid)
+        if msg is None:
+            rows.append([str(nid), "NO REPLY", "", f"no answer within {timeout:.0f} s"])
+        elif msg.has_error():
+            rows.append([str(nid), "ERROR", "", str(msg.error.reason)])
+        else:
+            s = msg.content["status"]
+            if not int(s["ready"]):
+                rows.append([str(nid), "NOT READY", "", str(s["detail"])])
+            elif s["genes-hash"] != server_hash:
+                rows.append([str(nid), "NOT READY", f"client_{s['partition-id']}",
+                             "genes.txt differs from the server's: download it again"])
+            else:
+                pid = int(s["partition-id"])
+                by_partition.setdefault(pid, []).append(nid)
+                rows.append([str(nid), "READY", f"client_{pid}",
+                             f"{s['train-cells']} train / {s['val-cells']} val cells"])
+    for pid, nids in by_partition.items():
+        if len(nids) > 1:
+            for row in rows:
+                if row[2] == f"client_{pid}" and row[1] == "READY":
+                    row[1], row[3] = "DUPLICATE", f"{len(nids)} nodes hold client_{pid}; keep one"
+
+    # The dashboard (apps/mnist_fedavg/dashboard.py) shows the latest check.
+    out = Path(os.path.expanduser(str(cfg["out-dir"])))
+    out.mkdir(parents=True, exist_ok=True)
+    keys = ("node", "status", "partition", "detail")
+    tmp = out / "readiness.json.tmp"
+    tmp.write_text(json.dumps({"checked_at": time.time(), "nodes": [dict(zip(keys, row)) for row in rows]}))
+    tmp.replace(out / "readiness.json")
+
+    print(f"\n{'node':<22} {'status':<10} {'partition':<10} detail", flush=True)
+    for nid, status, part, detail in rows:
+        print(f"{nid:<22} {status:<10} {part:<10} {detail}", flush=True)
+    ready = sum(row[1] == "READY" for row in rows)
+    print(f"\nReady: {ready} of {len(node_ids)} connected nodes.", flush=True)
+    if ready < len(node_ids):
+        print("Every connected node gets training work, so fix or disconnect the others "
+              "before a training run.", flush=True)
+
+
 @app.main()
 def main(grid: Grid, context: Context) -> None:
     cfg = dict(context.run_config)
+    if bool(cfg.get("check-only", False)):
+        _check_nodes(grid, cfg)
+        return
     logger = JsonlLogger(str(cfg["out-dir"]), cfg)
+    logger.write("labels", labels=list(LABELS))  # names the per-class counts for the dashboard
     print(f"Writing metrics to {logger.path}", flush=True)
-    logger.write("labels", labels=list(LABELS))
 
     torch.manual_seed(int(cfg["seed"]))
     min_nodes = int(cfg["min-nodes"])
