@@ -28,6 +28,7 @@ from hlca_fedavg.task import (
     build_model,
     evaluate_detailed,
     gene_list_hash,
+    is_umap_round,
     load_evaluation,
     load_genes,
     macro_f1,
@@ -133,7 +134,7 @@ class LoggingFedAvg(FedAvg):
         replies = list(replies)
         self._log("client_eval", server_round, replies)
         points = []
-        if server_round > 0 and server_round % 5 == 0:
+        if is_umap_round(server_round):
             for msg in replies:
                 if msg.has_error():
                     continue
@@ -248,7 +249,6 @@ def main(grid: Grid, context: Context) -> None:
 
     torch.manual_seed(int(cfg["seed"]))
     min_nodes = int(cfg["min-nodes"])
-    embedding_sample = int(cfg["umap-sample-per-site"])
     evaluation_loader, evaluation_labels, evaluation_datasets = load_evaluation(
         cfg["evaluation-file"], cfg
     )
@@ -266,12 +266,12 @@ def main(grid: Grid, context: Context) -> None:
     def central_eval(server_round: int, arrays: ArrayRecord) -> MetricRecord:
         model = build_model(cfg)
         model.load_state_dict(arrays.to_torch_state_dict())
-        capture_umap = server_round > 0 and server_round % 5 == 0
+        capture_umap = is_umap_round(server_round)
         details = evaluate_detailed(
             model,
             evaluation_loader,
             len(LABELS),
-            max_embedding_cells=embedding_sample if capture_umap else 0,
+            max_embedding_cells=None if capture_umap else 0,
             seed=int(cfg["seed"]) + server_round,
         )
         n = int(details.confusion.sum())

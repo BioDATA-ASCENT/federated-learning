@@ -38,6 +38,11 @@ LABELS: tuple[str, ...] = (
     "Smooth muscle",
     "Submucosal Gland",
 )
+UMAP_INTERVAL = 5
+
+
+def is_umap_round(server_round: int) -> bool:
+    return server_round > 0 and server_round % UMAP_INTERVAL == 0
 
 
 def load_genes(path: str | Path) -> list[str]:
@@ -258,39 +263,46 @@ def evaluate_detailed(
     model: MLP,
     loader: DataLoader,
     n_classes: int,
-    max_embedding_cells: int,
+    max_embedding_cells: int | None,
     seed: int,
 ) -> EvaluationDetails:
-    """Evaluate every cell and retain a reproducible per-group sample for UMAP."""
-    if max_embedding_cells < 0:
+    """Evaluate every cell; None retains all UMAP embeddings, zero retains none."""
+    if max_embedding_cells is not None and max_embedding_cells < 0:
         raise ValueError("max_embedding_cells must be non-negative.")
     model.eval()
     n_cells = len(loader.dataset)
     data_tensors = getattr(loader.dataset, "tensors", ())
     all_groups = data_tensors[2].numpy() if len(data_tensors) > 2 else None
-    rng = np.random.default_rng(seed)
     if all_groups is None:
-        selected = (
-            rng.choice(n_cells, min(max_embedding_cells, n_cells), replace=False)
-            if max_embedding_cells
-            else np.empty(0, dtype=np.int64)
-        )
-    else:
-        selected_groups = [
-            rng.choice(
-                indices,
-                min(max_embedding_cells, len(indices)),
-                replace=False,
+        if max_embedding_cells is None:
+            selected = np.arange(n_cells)
+        elif max_embedding_cells:
+            selected = np.random.default_rng(seed).choice(
+                n_cells, min(max_embedding_cells, n_cells), replace=False
             )
-            for group in np.unique(all_groups)
-            if max_embedding_cells
-            and len(indices := np.flatnonzero(all_groups == group))
-        ]
-        selected = (
-            np.concatenate(selected_groups)
-            if selected_groups
-            else np.empty(0, dtype=np.int64)
-        )
+        else:
+            selected = np.empty(0, dtype=np.int64)
+    else:
+        rng = np.random.default_rng(seed)
+        selected_groups = []
+        if max_embedding_cells is None:
+            selected = np.arange(n_cells)
+        else:
+            selected_groups = [
+                rng.choice(
+                    indices,
+                    min(max_embedding_cells, len(indices)),
+                    replace=False,
+                )
+                for group in np.unique(all_groups)
+                if max_embedding_cells
+                and len(indices := np.flatnonzero(all_groups == group))
+            ]
+            selected = (
+                np.concatenate(selected_groups)
+                if selected_groups
+                else np.empty(0, dtype=np.int64)
+            )
     selected.sort()
 
     confusion = np.zeros((n_classes, n_classes), dtype=np.int64)
@@ -298,7 +310,7 @@ def evaluate_detailed(
     embedding_parts: list[np.ndarray] = []
     true_parts: list[np.ndarray] = []
     pred_parts: list[np.ndarray] = []
-    sampled_group_parts: list[np.ndarray] = []
+    group_parts: list[np.ndarray] = []
     total, seen = 0.0, 0
     offset = 0
     with torch.no_grad():
@@ -335,7 +347,7 @@ def evaluate_detailed(
                 true_parts.append(true[local_indices])
                 pred_parts.append(pred[local_indices])
                 if batch_groups is not None:
-                    sampled_group_parts.append(batch_groups[local_indices])
+                    group_parts.append(batch_groups[local_indices])
             offset = end
 
     diagonal = np.diag(confusion)
@@ -355,7 +367,7 @@ def evaluate_detailed(
         ),
         y_true=np.concatenate(true_parts) if true_parts else np.empty(0, dtype=np.int64),
         y_pred=np.concatenate(pred_parts) if pred_parts else np.empty(0, dtype=np.int64),
-        groups=np.concatenate(sampled_group_parts) if sampled_group_parts else None,
+        groups=np.concatenate(group_parts) if group_parts else None,
         group_confusions=group_confusions,
     )
 

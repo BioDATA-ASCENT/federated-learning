@@ -4,7 +4,11 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from hlca_fedavg.task import MLP, evaluate_detailed
+from hlca_fedavg.task import MLP, evaluate_detailed, is_umap_round
+
+
+def test_umap_capture_is_scheduled_every_five_training_rounds():
+    assert [rnd for rnd in range(16) if is_umap_round(rnd)] == [5, 10, 15]
 
 
 def test_evaluate_detailed_counts_every_cell_and_caps_each_group():
@@ -45,6 +49,32 @@ def test_evaluate_detailed_counts_every_cell_and_caps_each_group():
     np.testing.assert_array_equal(result.embeddings, repeat.embeddings)
     np.testing.assert_array_equal(result.y_true, repeat.y_true)
     np.testing.assert_array_equal(result.y_pred, repeat.y_pred)
+
+
+def test_evaluate_detailed_includes_every_cell_for_umap():
+    torch.manual_seed(11)
+    features = torch.randn(20, 4)
+    labels = torch.arange(20) % 3
+    groups = torch.tensor([0] * 11 + [1] * 9)
+    loader = DataLoader(
+        TensorDataset(features, labels, groups),
+        batch_size=4,
+        shuffle=False,
+    )
+    model = MLP(n_genes=4, hidden=8, n_classes=3)
+
+    result = evaluate_detailed(
+        model, loader, n_classes=3, max_embedding_cells=None, seed=19
+    )
+
+    with torch.no_grad():
+        expected_logits, expected_embeddings = model.forward_with_embedding(features)
+    assert result.embeddings.shape == (len(labels), model.fc1.out_features)
+    np.testing.assert_allclose(result.embeddings, expected_embeddings.numpy())
+    np.testing.assert_array_equal(result.y_true, labels.numpy())
+    np.testing.assert_array_equal(result.y_pred, expected_logits.argmax(1).numpy())
+    np.testing.assert_array_equal(result.groups, groups.numpy())
+    assert sum(matrix.sum() for matrix in result.group_confusions.values()) == len(labels)
 
 
 def test_evaluate_detailed_caps_ungrouped_sample():
